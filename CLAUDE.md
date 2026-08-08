@@ -7,6 +7,7 @@
   - `EnterWorktree` は使用しない。
   - バックグラウンドジョブの worktree 隔離ガードは `.claude/settings.json` の `"worktree": { "bgIsolation": "none" }` で無効化してある。
 - 実装中は適切な粒度で `main` ブランチに直接コミットしていく。
+- **機能を追加するごとに GitHub に push すること。** 各機能・各ステップの実装が完了してコミットしたら、`git push` でリモート（GitHub）へ反映する。
 
 ## コード整形・静的解析（oxlint / oxfmt）
 
