@@ -68,10 +68,16 @@ body {
   overflow: hidden;
 }
 
-/* Mapbox GL JS のキャンバスを全画面に敷く。 */
+/* Mapbox GL JS のキャンバスを全画面に敷く。
+ * Mapbox は初期化時にコンテナへ .mapboxgl-map クラスを付与し、その position:relative が
+ * .map-view の position:absolute を上書きして inset:0 が無効化される（高さが 0 になり地図が
+ * 真っ黒になる）。position の勝敗に依存せず親（.map-shell=100dvh）を確実に満たすよう、
+ * 幅・高さを明示する。 */
 .map-view {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
 }
 
 /* token 未設定時のフォールバック表示（地図の代わり）。 */
