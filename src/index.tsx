@@ -46,7 +46,8 @@ app.get('/', async (c) => {
           <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
           <meta name="apple-mobile-web-app-title" content="Buraburider" />
           <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
-          <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+          <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+          <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
 
           <script dangerouslySetInnerHTML={{ __html: tokenScript }} />
           <ViteClient />
