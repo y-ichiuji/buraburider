@@ -52,11 +52,12 @@ export function MapView({ token, origin, destination, focus, route }: MapViewPro
 
   // 地図の初期化（token 確定後に一度だけ）。
   useEffect(() => {
-    if (!token || !containerRef.current || mapRef.current) return
+    const container = containerRef.current
+    if (!token || !container || mapRef.current) return
 
     mapboxgl.accessToken = token
     const map = new mapboxgl.Map({
-      container: containerRef.current,
+      container,
       style: MAP_STYLE,
       center: focus ?? origin ?? DEFAULT_ORIGIN,
       zoom: 12,
@@ -73,7 +74,16 @@ export function MapView({ token, origin, destination, focus, route }: MapViewPro
     )
     mapRef.current = map
 
+    // コンテナのサイズ変化を監視して map.resize() する。
+    // スタイルシート（src/style.css）は <link> で非同期に読み込まれるため、
+    // 初期化時にコンテナの高さが 0 のまま計測されるとタイルが一切要求されず地図が黒くなる。
+    // Mapbox の trackResize は window リサイズしか追わないため、コンテナ自身の
+    // サイズ変化（0 → 全画面）を ResizeObserver で捉えて明示的にリサイズする。
+    const resizeObserver = new ResizeObserver(() => map.resize())
+    resizeObserver.observe(container)
+
     return () => {
+      resizeObserver.disconnect()
       map.remove()
       mapRef.current = null
       originMarkerRef.current = null

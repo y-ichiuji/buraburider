@@ -32,6 +32,9 @@ lerna-debug.log*
 # misc
 .DS_Store
 
+# デバッグ用にエクスポートした HAR（URL クエリにトークンを含むためコミットしない）
+*.har
+
 # local agent settings
 .claude/settings.local.json
 
