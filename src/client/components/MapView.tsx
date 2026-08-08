@@ -1,7 +1,7 @@
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { useEffect, useRef } from 'react'
-import type { Coord } from '../../server/types'
+import type { Coord, LineString } from '../../server/types'
 import { DEFAULT_ORIGIN } from '../lib/geo'
 
 /** ダーク基調に合わせた Mapbox スタイル。 */
@@ -10,6 +10,22 @@ const MAP_STYLE = 'mapbox://styles/mapbox/dark-v11'
 const ORIGIN_COLOR = '#34c759'
 /** 目的地マーカー色（オレンジ = --primary）。 */
 const DEST_COLOR = '#ff6a00'
+/** ルートライン色（オレンジ = --primary）。 */
+const ROUTE_COLOR = '#ff6a00'
+/** ルートの下地（casing）色（ほぼ黒 = --bg）。 */
+const ROUTE_CASING_COLOR = '#0a0a0b'
+
+/** ルート描画用の source / layer ID。 */
+const ROUTE_SOURCE_ID = 'buraburider-route'
+const ROUTE_LAYER_ID = 'buraburider-route-line'
+const ROUTE_CASING_ID = 'buraburider-route-casing'
+
+/** ルート描画用の layer / source を（存在すれば）地図から取り除く。 */
+function removeRouteLayers(map: mapboxgl.Map): void {
+  if (map.getLayer(ROUTE_LAYER_ID)) map.removeLayer(ROUTE_LAYER_ID)
+  if (map.getLayer(ROUTE_CASING_ID)) map.removeLayer(ROUTE_CASING_ID)
+  if (map.getSource(ROUTE_SOURCE_ID)) map.removeSource(ROUTE_SOURCE_ID)
+}
 
 export interface MapViewProps {
   /** SSR から渡された public token。null ならフォールバック表示。 */
@@ -20,13 +36,15 @@ export interface MapViewProps {
   destination: Coord | null
   /** 地図をこの座標へ移動（flyTo）する。参照が変わるたびに移動。 */
   focus: Coord | null
+  /** 描画するルートの線形（GeoJSON LineString）。null なら消去。 */
+  route: LineString | null
 }
 
 /**
  * Mapbox GL JS による全画面地図。出発地・目的地のマーカー表示と、focus 変更時の flyTo を行う。
  * token が無効な場合は地図を初期化せず、案内用のフォールバックを表示する。
  */
-export function MapView({ token, origin, destination, focus }: MapViewProps) {
+export function MapView({ token, origin, destination, focus, route }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const originMarkerRef = useRef<mapboxgl.Marker | null>(null)
@@ -101,6 +119,66 @@ export function MapView({ token, origin, destination, focus }: MapViewProps) {
     if (!map || !focus) return
     map.flyTo({ center: focus, zoom: Math.max(map.getZoom(), 13), essential: true })
   }, [focus])
+
+  // ルート（LineString）の描画・更新。route が null になったら消去する。
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    // スタイル未ロード中に addSource するとエラーになるため、ロード完了を待つ。
+    const apply = () => {
+      if (!route) {
+        removeRouteLayers(map)
+        return
+      }
+
+      const feature = {
+        type: 'Feature' as const,
+        properties: {},
+        geometry: route
+      }
+
+      const source = map.getSource(ROUTE_SOURCE_ID)
+      if (source) {
+        ;(source as mapboxgl.GeoJSONSource).setData(feature)
+      } else {
+        map.addSource(ROUTE_SOURCE_ID, { type: 'geojson', data: feature })
+        map.addLayer({
+          id: ROUTE_CASING_ID,
+          type: 'line',
+          source: ROUTE_SOURCE_ID,
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': ROUTE_CASING_COLOR, 'line-width': 8, 'line-opacity': 0.9 }
+        })
+        map.addLayer({
+          id: ROUTE_LAYER_ID,
+          type: 'line',
+          source: ROUTE_SOURCE_ID,
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': ROUTE_COLOR, 'line-width': 5 }
+        })
+      }
+
+      // ルート全体が見えるようにフィットさせる（上部の検索 UI 分を空ける）。
+      const bounds = new mapboxgl.LngLatBounds()
+      for (const coord of route.coordinates) bounds.extend(coord)
+      if (!bounds.isEmpty()) {
+        map.fitBounds(bounds, {
+          padding: { top: 180, bottom: 220, left: 48, right: 48 },
+          duration: 800
+        })
+      }
+    }
+
+    if (map.isStyleLoaded()) {
+      apply()
+      return
+    }
+    map.once('load', apply)
+    return () => {
+      map.off('load', apply)
+    }
+  }, [route])
 
   if (!token) {
     return (

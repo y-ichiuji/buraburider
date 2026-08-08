@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { health } from './health'
+import { plan } from './plan'
 import { search } from './search'
 
 /**
@@ -11,6 +12,7 @@ export function createApiApp() {
 
   api.route('/health', health)
   api.route('/search', search)
+  api.route('/routes', plan)
 
   return api
 }

@@ -60,3 +60,41 @@ export interface SuggestItem {
   /** 整形済みの住所文字列（あれば）。 */
   fullAddress?: string
 }
+
+// --- ルート生成 API（POST /api/routes/plan）の入出力契約 -------------------
+// architecture.md §5 の契約に対応。クライアント（src/client）とも共有する。
+
+/** 休憩モード。UI の休憩設定に対応し、Mapbox 検索カテゴリへマッピングされる。 */
+export type RestMode = 'konbini' | 'local' | 'cafe' | 'emergency'
+
+/** 休憩スケジューリングの設定（リクエストの `rest`）。 */
+export interface RestConfig {
+  /** 休憩挿入を有効にするか。 */
+  enabled: boolean
+  /** 休憩間隔（分）。例: 90 =「1時間半ごと」。 */
+  intervalMinutes: number
+  /** 休憩モード。 */
+  mode: RestMode
+}
+
+/** `POST /api/routes/plan` のリクエストボディ。 */
+export interface PlanRequest {
+  /** 出発地 `[lng, lat]`。 */
+  origin: Coord
+  /** 目的地 `[lng, lat]`。 */
+  destination: Coord
+  /** 寄り道度スライダー（0〜5）。ステップ3では未使用（素のルート）。 */
+  detourLevel: number
+  /** 休憩設定。ステップ3では未使用（`rests: []`）。 */
+  rest: RestConfig
+}
+
+/** `POST /api/routes/plan` のレスポンスボディ。 */
+export interface PlanResponse {
+  /** 生成されたルート要約。 */
+  route: Route
+  /** 挿入された立ち寄り経由地（ステップ3では空）。 */
+  waypoints: Waypoint[]
+  /** 挿入された休憩ポイント（ステップ3では空）。 */
+  rests: Rest[]
+}

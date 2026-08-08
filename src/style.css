@@ -267,3 +267,117 @@ body {
   font-size: 0.75rem;
   color: var(--text-muted);
 }
+
+/* --- 下部ドック（ルート生成 CTA と結果パネル）--------------------------- */
+
+.bottom-dock {
+  pointer-events: auto;
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding-bottom: max(0.25rem, env(safe-area-inset-bottom));
+}
+
+/* 主要 CTA（ルート生成）: 黒×オレンジの熱グラデ + グロー。 */
+.btn-generate {
+  pointer-events: auto;
+  width: 100%;
+  min-height: 52px;
+  border: none;
+  border-radius: var(--radius-lg);
+  background: var(--grad-heat);
+  color: var(--on-primary);
+  font-family: var(--font-body);
+  font-weight: 800;
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  box-shadow: var(--glow-primary);
+  transition:
+    transform 0.08s ease,
+    filter 0.15s ease;
+}
+
+.btn-generate:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.btn-generate:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn-generate:disabled {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* --- ルート結果パネル（距離・所要時間のメーター）------------------------ */
+
+.route-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 45%);
+}
+
+.route-panel--error {
+  border-color: var(--danger);
+}
+
+.route-panel__loading {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.route-panel__error {
+  font-size: 0.9rem;
+  color: var(--danger);
+}
+
+.meter-row {
+  display: flex;
+  gap: 1.5rem;
+  margin: 0;
+}
+
+.meter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.meter__label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.meter__value {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+}
+
+.meter__num {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 1.6rem;
+  line-height: 1;
+  color: var(--primary);
+}
+
+.meter__unit {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}

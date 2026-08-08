@@ -1,12 +1,15 @@
 // トップ画面のアプリシェル。
 // 全画面地図（MapView）を背景に敷き、出発地・目的地の入力 UI をオーバーレイで重ねる。
-// この段階ではルート生成は未実装（ステップ 3 以降）。目的地が選べて地図が動くところまで。
+// 出発地と目的地が揃うと「ルート生成」CTA が押せ、素のルートを取得して地図に描画する。
+// （寄り道スライダー・休憩設定 UI はステップ4/5 で追加する。）
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Coord, SuggestItem } from '../server/types'
 import { MapView } from './components/MapView'
+import { RoutePanel } from './components/RoutePanel'
 import { SuggestField } from './components/SuggestField'
 import { useGeolocation } from './hooks/useGeolocation'
+import { useRoutePlan } from './hooks/useRoutePlan'
 import { readMapboxToken } from './lib/mapbox'
 
 function App() {
@@ -22,12 +25,19 @@ function App() {
   const [destItem, setDestItem] = useState<SuggestItem | null>(null)
   const [destQuery, setDestQuery] = useState('')
 
+  const { plan, status: planStatus, error: planError, generate, reset } = useRoutePlan()
+
   // 実際に使う出発地座標: 手動選択があればそれ、なければ現在地。
   const origin: Coord = originItem?.coord ?? geoOrigin
 
   // 地図のフォーカス先: 目的地 > 手動出発地 > 現在地（取得成功時）。
   const focus: Coord | null =
     destItem?.coord ?? originItem?.coord ?? (geoStatus === 'success' ? geoOrigin : null)
+
+  // 出発地・目的地が変わったら前回のルート結果を破棄する（古い線が残らないように）。
+  useEffect(() => {
+    reset()
+  }, [origin, destItem, reset])
 
   function handleOriginChange(value: string) {
     setOriginQuery(value)
@@ -39,6 +49,13 @@ function App() {
     if (destItem && value !== destItem.name) setDestItem(null)
   }
 
+  const canGenerate = destItem !== null && planStatus !== 'loading'
+
+  function handleGenerate() {
+    if (!destItem) return
+    void generate(origin, destItem.coord)
+  }
+
   const originPlaceholder =
     geoStatus === 'locating'
       ? '現在地を取得中…'
@@ -48,7 +65,13 @@ function App() {
 
   return (
     <div className="map-shell">
-      <MapView token={token} origin={origin} destination={destItem?.coord ?? null} focus={focus} />
+      <MapView
+        token={token}
+        origin={origin}
+        destination={destItem?.coord ?? null}
+        focus={focus}
+        route={plan?.route.geojson ?? null}
+      />
 
       <div className="overlay">
         <header className="brand">
@@ -83,6 +106,19 @@ function App() {
             }}
           />
         </section>
+
+        <div className="bottom-dock">
+          <RoutePanel plan={plan} status={planStatus} error={planError} />
+
+          <button
+            type="button"
+            className="btn-generate"
+            onClick={handleGenerate}
+            disabled={!canGenerate}
+          >
+            {planStatus === 'loading' ? '生成中…' : 'ルート生成'}
+          </button>
+        </div>
       </div>
     </div>
   )

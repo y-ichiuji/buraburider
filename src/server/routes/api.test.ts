@@ -80,3 +80,110 @@ describe('GET /api/search/suggest', () => {
     expect(res.status).toBe(502)
   })
 })
+
+describe('POST /api/routes/plan', () => {
+  const validBody = {
+    origin: [139.767, 35.681],
+    destination: [138.727, 35.36],
+    detourLevel: 0,
+    rest: { enabled: false, intervalMinutes: 90, mode: 'konbini' }
+  }
+
+  function postPlan(app: ReturnType<typeof buildApp>, body: unknown, env = testEnv) {
+    return app.request(
+      '/api/routes/plan',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body)
+      },
+      env
+    )
+  }
+
+  function stubDirections() {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              routes: [
+                {
+                  geometry: {
+                    type: 'LineString',
+                    coordinates: [
+                      [139.767, 35.681],
+                      [138.727, 35.36]
+                    ]
+                  },
+                  distance: 152400,
+                  duration: 12840
+                }
+              ]
+            }),
+            { status: 200 }
+          )
+      )
+    )
+  }
+
+  it('素のルート（route + 空の waypoints/rests）を返す', async () => {
+    stubDirections()
+    const app = buildApp()
+    const res = await postPlan(app, validBody)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      route: { distanceKm: number; durationMin: number }
+      waypoints: unknown[]
+      rests: unknown[]
+    }
+    expect(body.route.distanceKm).toBe(152.4)
+    expect(body.route.durationMin).toBe(214)
+    expect(body.waypoints).toEqual([])
+    expect(body.rests).toEqual([])
+  })
+
+  it('Directions へ [origin, destination] を渡す', async () => {
+    stubDirections()
+    const app = buildApp()
+    await postPlan(app, validBody)
+    const calledUrl = new URL((fetch as ReturnType<typeof vi.fn>).mock.calls[0][0].toString())
+    expect(calledUrl.pathname).toBe('/directions/v5/mapbox/driving/139.767,35.681;138.727,35.36')
+  })
+
+  it('不正なボディは 400 を返す（Mapbox は呼ばない）', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const app = buildApp()
+    const res = await postPlan(app, {
+      origin: [139.767],
+      destination: [138.727, 35.36],
+      detourLevel: 0
+    })
+    expect(res.status).toBe(400)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('detourLevel が範囲外なら 400 を返す', async () => {
+    const app = buildApp()
+    const res = await postPlan(app, { ...validBody, detourLevel: 9 })
+    expect(res.status).toBe(400)
+  })
+
+  it('トークン未設定なら 500 を返す', async () => {
+    const app = buildApp()
+    const res = await postPlan(app, validBody, {} as CloudflareBindings)
+    expect(res.status).toBe(500)
+  })
+
+  it('Mapbox がエラーなら 502 を返す', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('boom', { status: 500 }))
+    )
+    const app = buildApp()
+    const res = await postPlan(app, validBody)
+    expect(res.status).toBe(502)
+  })
+})
