@@ -1,8 +1,9 @@
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { useEffect, useRef } from 'react'
-import type { Coord, LineString, Waypoint } from '../../server/types'
+import type { Coord, LineString, Rest, Waypoint } from '../../server/types'
 import { DEFAULT_ORIGIN } from '../lib/geo'
+import { REST_TYPE_META } from '../lib/plan'
 
 /** ダーク基調に合わせた Mapbox スタイル。 */
 const MAP_STYLE = 'mapbox://styles/mapbox/dark-v11'
@@ -42,18 +43,29 @@ export interface MapViewProps {
   route: LineString | null
   /** 寄り道の経由地。順に番号付きマーカーを表示する。 */
   waypoints?: Waypoint[]
+  /** 休憩地点。経由地マーカーとは別の（アイコン付き）マーカーで表示する。 */
+  rests?: Rest[]
 }
 
 /**
  * Mapbox GL JS による全画面地図。出発地・目的地のマーカー表示と、focus 変更時の flyTo を行う。
  * token が無効な場合は地図を初期化せず、案内用のフォールバックを表示する。
  */
-export function MapView({ token, origin, destination, focus, route, waypoints }: MapViewProps) {
+export function MapView({
+  token,
+  origin,
+  destination,
+  focus,
+  route,
+  waypoints,
+  rests
+}: MapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const originMarkerRef = useRef<mapboxgl.Marker | null>(null)
   const destMarkerRef = useRef<mapboxgl.Marker | null>(null)
   const waypointMarkersRef = useRef<mapboxgl.Marker[]>([])
+  const restMarkersRef = useRef<mapboxgl.Marker[]>([])
 
   // 地図の初期化（token 確定後に一度だけ）。
   useEffect(() => {
@@ -94,6 +106,7 @@ export function MapView({ token, origin, destination, focus, route, waypoints }:
       originMarkerRef.current = null
       destMarkerRef.current = null
       waypointMarkersRef.current = []
+      restMarkersRef.current = []
     }
     // focus / origin は初期センターとしてのみ使用。以降の移動は別 effect が担う。
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -149,6 +162,27 @@ export function MapView({ token, origin, destination, focus, route, waypoints }:
       waypointMarkersRef.current.push(marker)
     })
   }, [waypoints])
+
+  // 休憩マーカーの更新。経由地（オレンジの番号ピン）と区別するため、
+  // モード別アイコン付きの明色バッジで表示する。
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    for (const marker of restMarkersRef.current) marker.remove()
+    restMarkersRef.current = []
+
+    const list = rests ?? []
+    for (const rest of list) {
+      const meta = REST_TYPE_META[rest.type]
+      const el = document.createElement('div')
+      el.className = 'rest-marker'
+      el.textContent = meta.icon
+      el.title = `${rest.name}（${meta.label}）`
+      const marker = new mapboxgl.Marker({ element: el }).setLngLat(rest.coord).addTo(map)
+      restMarkersRef.current.push(marker)
+    }
+  }, [rests])
 
   // focus が変わったら地図を移動。
   useEffect(() => {

@@ -27,8 +27,10 @@ import {
   type CollectSpotsOptions,
   getDirections as defaultGetDirections,
   type DirectionsOptions,
-  type MapboxDeps
+  type MapboxDeps,
+  nearestVertexIndex
 } from './mapbox'
+import { scheduleRests as defaultScheduleRests, type RestDeps } from './rest'
 
 /** planRoute の依存。Mapbox 依存に加え、テスト用に各段の実装を差し替えできる。 */
 export interface PlanDeps {
@@ -48,6 +50,8 @@ export interface PlanDeps {
     count: number,
     deps: { ai?: Ai }
   ) => Promise<Waypoint[]>
+  /** 休憩スケジューリングの実装。既定は services/rest の scheduleRests。 */
+  scheduleRests?: (route: Route, config: RestConfig, deps: RestDeps) => Promise<Rest[]>
 }
 
 /** Mapbox Directions の経由地上限（25）から origin/destination を除いた挿入可能数。 */
@@ -94,55 +98,109 @@ const DEFAULT_REST: RestConfig = { enabled: false, intervalMinutes: 90, mode: 'k
 /**
  * ルートを生成する。
  *
- * - `detourLevel === 0`: 経由地なしの素のルート（`[origin, destination]`）を返す。
- * - `detourLevel >= 1`: 基本ルート取得 → ルート沿いの POI 候補収集 → AI（失敗時は
- *   スコアリング）で立ち寄り先を N 件選定 → 経由地入りで Directions を再計算する。
+ * 1. 基本ルート（経由地なし）を取得する。
+ * 2. `detourLevel >= 1` なら、ルート沿いの POI 候補収集 → AI（失敗時はスコアリング）で
+ *    立ち寄り先を N 件選定し、経由地入りで再計算した「寄り道ルート」を得る。
+ * 3. `rest.enabled` なら、寄り道ルート（無ければ基本ルート）に沿って休憩地点を算出し、
+ *    寄り道経由地と休憩をルート上の位置順にマージして最終ルートを再計算する。
  *
- * 候補収集・選定に失敗しても素の基本ルートへフォールバックし、機能は壊さない。
- * `rests`（休憩）はステップ5で組み立てる。ここでは常に空。
+ * 候補収集・選定・休憩スケジューリング・再計算のいずれが失敗しても、
+ * 直前まで得られたルートへフォールバックし、機能全体は壊さない。
  */
 export async function planRoute(input: PlanRequest, deps: PlanDeps): Promise<PlanResponse> {
   const getDirections = deps.getDirections ?? defaultGetDirections
   const collectSpots = deps.collectSpots ?? defaultCollectRouteSpots
   const selectWaypoints = deps.selectWaypoints ?? defaultSelectDetourWaypoints
-  const rests: Rest[] = []
+  const scheduleRests = deps.scheduleRests ?? defaultScheduleRests
 
-  // 基本ルート（経由地なし）。寄り道生成でも候補収集の基準線として使う。
+  // 基本ルート（経由地なし）。寄り道生成・休憩算出の基準線として使う。
   const baseRoute = await getDirections([input.origin, input.destination], {}, deps.mapbox)
 
-  if (input.detourLevel <= DETOUR_LEVEL_MIN) {
-    return { route: baseRoute, waypoints: [], rests }
-  }
-
-  const params = detourParamsForLevel(input.detourLevel)
-
+  // --- 寄り道経由地の決定（detourLevel >= 1 のとき）-------------------------
   let waypoints: Waypoint[] = []
-  try {
-    const spots = await collectSpots(
-      baseRoute,
-      { sampleCount: params.sampleCount, maxSpotDistanceMeters: params.maxSpotDistanceMeters },
-      deps.mapbox
+  if (input.detourLevel > DETOUR_LEVEL_MIN) {
+    const params = detourParamsForLevel(input.detourLevel)
+    try {
+      const spots = await collectSpots(
+        baseRoute,
+        { sampleCount: params.sampleCount, maxSpotDistanceMeters: params.maxSpotDistanceMeters },
+        deps.mapbox
+      )
+      waypoints = await selectWaypoints(spots, baseRoute, input.detourLevel, params.waypointCount, {
+        ai: deps.ai
+      })
+    } catch (err) {
+      // POI 収集 / 選定の失敗はルート全体を壊さない。基本ルートへフォールバックする。
+      console.error('寄り道スポットの収集/選定に失敗しました。基本ルートを返します', err)
+      waypoints = []
+    }
+    waypoints = waypoints.slice(0, MAX_DETOUR_WAYPOINTS)
+  }
+
+  // 寄り道経由地入りルート（休憩スケジューリングの基準線）。経由地が無ければ基本ルート。
+  let detourRoute = baseRoute
+  if (waypoints.length > 0) {
+    const coords: Coord[] = [input.origin, ...waypoints.map((w) => w.coord), input.destination]
+    detourRoute = await getDirections(coords, {}, deps.mapbox)
+  }
+
+  // --- 休憩地点の決定（rest.enabled のとき）--------------------------------
+  let rests: Rest[] = []
+  if (input.rest.enabled) {
+    try {
+      const scheduled = await scheduleRests(detourRoute, input.rest, { mapbox: deps.mapbox })
+      // 経由地総数（寄り道 + 休憩）が Directions 上限を超えないよう休憩側をキャップする。
+      const budget = Math.max(0, MAX_DETOUR_WAYPOINTS - waypoints.length)
+      rests = scheduled.slice(0, budget)
+    } catch (err) {
+      // 休憩の算出失敗は致命ではない。休憩なしで寄り道ルートを返す。
+      console.error('休憩スケジューリングに失敗しました。休憩なしで返します', err)
+      rests = []
+    }
+  }
+
+  // --- 最終ルート ----------------------------------------------------------
+  // 休憩を挿入する場合のみ、寄り道経由地と休憩をルート順にマージして再計算する。
+  if (rests.length > 0) {
+    const coords = mergeIntermediateCoords(
+      input.origin,
+      input.destination,
+      waypoints,
+      rests,
+      detourRoute
     )
-    waypoints = await selectWaypoints(spots, baseRoute, input.detourLevel, params.waypointCount, {
-      ai: deps.ai
-    })
-  } catch (err) {
-    // POI 収集 / 選定の失敗はルート全体を壊さない。基本ルートへフォールバックする。
-    console.error('寄り道スポットの収集/選定に失敗しました。基本ルートを返します', err)
-    waypoints = []
+    try {
+      const route = await getDirections(coords, {}, deps.mapbox)
+      return { route, waypoints, rests }
+    } catch (err) {
+      // 休憩込みの再計算失敗時は寄り道ルートへフォールバック（休憩マーカーは情報として残す）。
+      console.error('休憩込みの再計算に失敗しました。寄り道ルートで返します', err)
+      return { route: detourRoute, waypoints, rests }
+    }
   }
 
-  // Directions の経由地上限に収める。
-  const capped = waypoints.slice(0, MAX_DETOUR_WAYPOINTS)
-  if (capped.length === 0) {
-    return { route: baseRoute, waypoints: [], rests }
-  }
+  return { route: detourRoute, waypoints, rests }
+}
 
-  // 経由地入りで再計算する。
-  const coords: Coord[] = [input.origin, ...capped.map((w) => w.coord), input.destination]
-  const route = await getDirections(coords, {}, deps.mapbox)
-
-  return { route, waypoints: capped, rests }
+/**
+ * 寄り道経由地と休憩地点を、基準ルート（detourRoute）上の進行順にマージし、
+ * `[origin, ...(順序付き中間点), destination]` の座標列を組み立てる。
+ * 進行順は各点に最も近いルート頂点のインデックスで近似する。
+ */
+export function mergeIntermediateCoords(
+  origin: Coord,
+  destination: Coord,
+  waypoints: readonly Waypoint[],
+  rests: readonly Rest[],
+  route: Route
+): Coord[] {
+  const path = route.geojson.coordinates
+  const points = [...waypoints.map((w) => w.coord), ...rests.map((r) => r.coord)].map((coord) => ({
+    coord,
+    progress: nearestVertexIndex(coord, path)
+  }))
+  points.sort((a, b) => a.progress - b.progress)
+  return [origin, ...points.map((p) => p.coord), destination]
 }
 
 // --- リクエストのバリデーション（純粋関数・テスト対象）--------------------

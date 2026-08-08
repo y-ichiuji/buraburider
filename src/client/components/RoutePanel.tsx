@@ -3,7 +3,7 @@
 // 将来（ステップ4/5）は立ち寄り一覧・休憩一覧をここに追加する。
 
 import type { PlanResponse, WaypointType } from '../../server/types'
-import { formatDistance, formatDuration } from '../lib/plan'
+import { formatAtMinute, formatDistance, formatDuration, REST_TYPE_META } from '../lib/plan'
 import type { RoutePlanStatus } from '../hooks/useRoutePlan'
 
 /** 経由地種別の表示ラベル。 */
@@ -45,6 +45,7 @@ export function RoutePanel({ plan, status, error }: RoutePanelProps) {
   if (!plan) return null
 
   const waypoints = plan.waypoints
+  const rests = plan.rests
 
   return (
     <div className="route-panel" role="status" aria-live="polite">
@@ -74,6 +75,21 @@ export function RoutePanel({ plan, status, error }: RoutePanelProps) {
             </li>
           ))}
         </ol>
+      )}
+
+      {rests.length > 0 && (
+        <ul className="rest-list" aria-label="休憩スポット">
+          {rests.map((rest) => (
+            <li className="rest-item" key={`${rest.name}-${rest.coord[0]}-${rest.coord[1]}`}>
+              <span className="rest-item__icon" aria-hidden="true">
+                {REST_TYPE_META[rest.type].icon}
+              </span>
+              <span className="rest-item__at">{formatAtMinute(rest.atMinute)}</span>
+              <span className="rest-item__name">{rest.name}</span>
+              <span className="rest-item__type">{REST_TYPE_META[rest.type].label}</span>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   )

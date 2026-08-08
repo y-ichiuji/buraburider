@@ -4,14 +4,15 @@
 // （寄り道スライダー・休憩設定 UI はステップ4/5 で追加する。）
 
 import { useEffect, useMemo, useState } from 'react'
-import type { Coord, SuggestItem } from '../server/types'
+import type { Coord, RestConfig, SuggestItem } from '../server/types'
 import { DetourSlider } from './components/DetourSlider'
 import { MapView } from './components/MapView'
+import { RestSettings } from './components/RestSettings'
 import { RoutePanel } from './components/RoutePanel'
 import { SuggestField } from './components/SuggestField'
 import { useGeolocation } from './hooks/useGeolocation'
 import { useRoutePlan } from './hooks/useRoutePlan'
-import { DEFAULT_DETOUR_LEVEL } from './lib/plan'
+import { DEFAULT_DETOUR_LEVEL, DEFAULT_REST_CONFIG } from './lib/plan'
 import { readMapboxToken } from './lib/mapbox'
 
 function App() {
@@ -29,6 +30,9 @@ function App() {
 
   // 寄り道度（0-5）。ルート生成時に buildPlanRequest 経由でサーバーへ送る。
   const [detourLevel, setDetourLevel] = useState(DEFAULT_DETOUR_LEVEL)
+
+  // 休憩設定（ON/OFF・間隔・モード）。RestSettings で編集し生成時に送る。
+  const [rest, setRest] = useState<RestConfig>(DEFAULT_REST_CONFIG)
 
   const { plan, status: planStatus, error: planError, generate, reset } = useRoutePlan()
 
@@ -58,7 +62,7 @@ function App() {
 
   function handleGenerate() {
     if (!destItem) return
-    void generate(origin, destItem.coord, detourLevel)
+    void generate(origin, destItem.coord, detourLevel, rest)
   }
 
   const originPlaceholder =
@@ -77,6 +81,7 @@ function App() {
         focus={focus}
         route={plan?.route.geojson ?? null}
         waypoints={plan?.waypoints ?? []}
+        rests={plan?.rests ?? []}
       />
 
       <div className="overlay">
@@ -121,6 +126,8 @@ function App() {
             onChange={setDetourLevel}
             disabled={planStatus === 'loading'}
           />
+
+          <RestSettings value={rest} onChange={setRest} disabled={planStatus === 'loading'} />
 
           <button
             type="button"

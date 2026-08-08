@@ -1,13 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { Coord, PlanRequest, Route, Spot, Waypoint } from '../types'
+import type { Coord, PlanRequest, Rest, RestConfig, Route, Spot, Waypoint } from '../types'
 import type { CollectSpotsOptions, DirectionsOptions, MapboxDeps } from './mapbox'
 import {
   DETOUR_LEVEL_MAX,
   detourParamsForLevel,
   MAX_DETOUR_WAYPOINTS,
+  mergeIntermediateCoords,
   parsePlanRequest,
   planRoute
 } from './plan'
+import type { RestDeps } from './rest'
 
 /** getDirections の型付きモックを作る（mock.calls を型安全に検証するため）。 */
 function makeGetDirections(impl: () => Promise<Route>) {
@@ -225,6 +227,166 @@ describe('planRoute（detourLevel >= 1）', () => {
       selectWaypoints
     })
     expect(selectWaypoints.mock.calls[0][4]).toEqual({ ai })
+  })
+})
+
+// --- mergeIntermediateCoords ------------------------------------------------
+
+describe('mergeIntermediateCoords', () => {
+  // 4 頂点のまっすぐな基準ルート。各中間点は最寄り頂点で進行順を決める。
+  const route: Route = {
+    geojson: {
+      type: 'LineString',
+      coordinates: [
+        [0, 0],
+        [1, 0],
+        [2, 0],
+        [3, 0]
+      ]
+    },
+    distanceKm: 10,
+    durationMin: 30
+  }
+  const origin: Coord = [-1, 0]
+  const destination: Coord = [4, 0]
+
+  it('寄り道経由地と休憩をルート進行順にマージする', () => {
+    const waypoints: Waypoint[] = [{ type: 'scenic', name: 'W', coord: [2, 0] }]
+    const rests: Rest[] = [{ type: 'konbini', name: 'R', atMinute: 10, coord: [1, 0] }]
+    const coords = mergeIntermediateCoords(origin, destination, waypoints, rests, route)
+    // R（index1）→ W（index2）の順に挟む。
+    expect(coords).toEqual([origin, [1, 0], [2, 0], destination])
+  })
+
+  it('中間点が無ければ [origin, destination] のみ', () => {
+    expect(mergeIntermediateCoords(origin, destination, [], [], route)).toEqual([
+      origin,
+      destination
+    ])
+  })
+})
+
+// --- planRoute（休憩あり）--------------------------------------------------
+
+describe('planRoute（rest.enabled）', () => {
+  const restConfig: RestConfig = { enabled: true, intervalMinutes: 90, mode: 'konbini' }
+  const restRequest: PlanRequest = { ...validRequest, rest: restConfig }
+
+  const scheduledRests: Rest[] = [
+    { type: 'konbini', name: 'コンビニA', atMinute: 90, coord: [139.3, 35.5] }
+  ]
+
+  function makeSchedule(result: Rest[]) {
+    return vi.fn((_route: Route, _config: RestConfig, _deps: RestDeps) => Promise.resolve(result))
+  }
+
+  it('detourLevel 0 でも休憩を挿入して再計算する', async () => {
+    const getDirections = makeGetDirections(async () => fakeRoute)
+    const scheduleRests = makeSchedule(scheduledRests)
+    const result = await planRoute(restRequest, {
+      mapbox: { token: 't' },
+      getDirections,
+      scheduleRests
+    })
+
+    // 基本ルート + 休憩入り再計算で 2 回。
+    expect(getDirections).toHaveBeenCalledTimes(2)
+    const finalCoords = getDirections.mock.calls[1][0]
+    expect(finalCoords).toEqual([restRequest.origin, [139.3, 35.5], restRequest.destination])
+    expect(result.rests).toEqual(scheduledRests)
+    expect(result.waypoints).toEqual([])
+  })
+
+  it('休憩スケジューリングは寄り道ルートを基準に呼ばれる', async () => {
+    const detourRoute: Route = { ...fakeRoute, durationMin: 300 }
+    const getDirections = vi.fn((_c: Coord[], _o: DirectionsOptions, _d: MapboxDeps) =>
+      Promise.resolve(detourRoute)
+    )
+    const scheduleRests = makeSchedule(scheduledRests)
+    await planRoute(
+      { ...restRequest, detourLevel: 3 },
+      {
+        mapbox: { token: 't' },
+        getDirections,
+        collectSpots: vi.fn(
+          async (): Promise<Spot[]> => [
+            { id: 'a', name: '展望台A', coord: [139.2, 35.5], category: 'viewpoint' }
+          ]
+        ),
+        selectWaypoints: vi.fn(
+          async (): Promise<Waypoint[]> => [
+            { type: 'scenic', name: '展望台A', coord: [139.2, 35.5] }
+          ]
+        ),
+        scheduleRests
+      }
+    )
+    // scheduleRests には寄り道再計算後のルートが渡る。
+    expect(scheduleRests.mock.calls[0][0]).toEqual(detourRoute)
+    expect(scheduleRests.mock.calls[0][1]).toEqual(restConfig)
+  })
+
+  it('休憩ゼロなら再計算しない（寄り道ルートを返す）', async () => {
+    const getDirections = makeGetDirections(async () => fakeRoute)
+    const scheduleRests = makeSchedule([])
+    const result = await planRoute(restRequest, {
+      mapbox: { token: 't' },
+      getDirections,
+      scheduleRests
+    })
+    expect(getDirections).toHaveBeenCalledTimes(1)
+    expect(result.rests).toEqual([])
+  })
+
+  it('スケジューリングが失敗しても落ちず休憩なしで返す', async () => {
+    const getDirections = makeGetDirections(async () => fakeRoute)
+    const scheduleRests = vi.fn(async () => {
+      throw new Error('rest down')
+    })
+    const result = await planRoute(restRequest, {
+      mapbox: { token: 't' },
+      getDirections,
+      scheduleRests
+    })
+    expect(result.rests).toEqual([])
+    expect(getDirections).toHaveBeenCalledTimes(1)
+  })
+
+  it('寄り道が上限を占有していれば休憩はキャップされる', async () => {
+    const many: Waypoint[] = Array.from({ length: MAX_DETOUR_WAYPOINTS }, (_v, i) => ({
+      type: 'poi' as const,
+      name: `w${i}`,
+      coord: [138 + i * 0.01, 35] as Coord
+    }))
+    const getDirections = makeGetDirections(async () => fakeRoute)
+    const scheduleRests = makeSchedule(scheduledRests)
+    const result = await planRoute(
+      { ...restRequest, detourLevel: 5 },
+      {
+        mapbox: { token: 't' },
+        getDirections,
+        collectSpots: vi.fn(async () => []),
+        selectWaypoints: vi.fn(async () => many),
+        scheduleRests
+      }
+    )
+    // 経由地が 23 枠を使い切るので休憩は 0 件にキャップ。
+    expect(result.waypoints).toHaveLength(MAX_DETOUR_WAYPOINTS)
+    expect(result.rests).toEqual([])
+    // base + detour のみ（休憩入り再計算はしない）。
+    expect(getDirections).toHaveBeenCalledTimes(2)
+  })
+
+  it('rest.enabled=false なら scheduleRests を呼ばない', async () => {
+    const getDirections = makeGetDirections(async () => fakeRoute)
+    const scheduleRests = makeSchedule(scheduledRests)
+    const result = await planRoute(validRequest, {
+      mapbox: { token: 't' },
+      getDirections,
+      scheduleRests
+    })
+    expect(scheduleRests).not.toHaveBeenCalled()
+    expect(result.rests).toEqual([])
   })
 })
 

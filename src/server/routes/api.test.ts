@@ -265,6 +265,119 @@ describe('POST /api/routes/plan', () => {
     expect(body.waypoints).toHaveLength(1)
   })
 
+  // rest.enabled=true: Directions（基本＋休憩入り再計算）とコンビニのカテゴリ検索を
+  // モックし、休憩入りルートが返ることを確認する。
+  it('rest.enabled=true で休憩スポット入りのルートを返す', async () => {
+    // ルート頂点上に置いたスポットは距離フィルタを通過する。
+    const originVertex = [139.767, 35.681]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: URL | RequestInfo) => {
+        const url = new URL(input.toString())
+        if (url.pathname.startsWith('/directions/')) {
+          return new Response(
+            JSON.stringify({
+              routes: [
+                {
+                  geometry: {
+                    type: 'LineString',
+                    coordinates: [
+                      [139.767, 35.681],
+                      [138.727, 35.36]
+                    ]
+                  },
+                  distance: 152400,
+                  duration: 12840
+                }
+              ]
+            }),
+            { status: 200 }
+          )
+        }
+        // コンビニのカテゴリ検索: ルート始点上のコンビニを返す。
+        return new Response(
+          JSON.stringify({
+            features: [
+              {
+                geometry: { coordinates: originVertex },
+                properties: { mapbox_id: 'poi.store', name: 'コンビニ沿道店' }
+              }
+            ]
+          }),
+          { status: 200 }
+        )
+      })
+    )
+
+    const app = buildApp()
+    const res = await postPlan(app, {
+      ...validBody,
+      rest: { enabled: true, intervalMinutes: 90, mode: 'konbini' }
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      rests: Array<{ name: string; type: string; atMinute: number }>
+    }
+    expect(body.rests.length).toBeGreaterThanOrEqual(1)
+    expect(body.rests[0].type).toBe('konbini')
+    expect(body.rests[0].name).toBe('コンビニ沿道店')
+
+    const calls = (fetch as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c) => new URL(c[0].toString()).pathname
+    )
+    expect(calls.some((p) => p.startsWith('/search/searchbox/v1/category/'))).toBe(true)
+  })
+
+  // 寄り道と休憩の併用: convenience_store は休憩、それ以外のカテゴリは寄り道候補として返す。
+  it('detourLevel>=1 かつ rest.enabled=true で経由地と休憩の両方を返す', async () => {
+    const routeVertex = [139.0, 35.5]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: URL | RequestInfo) => {
+        const url = new URL(input.toString())
+        if (url.pathname.startsWith('/directions/')) {
+          return new Response(
+            JSON.stringify({
+              routes: [
+                {
+                  geometry: {
+                    type: 'LineString',
+                    coordinates: [[139.767, 35.681], routeVertex, [138.727, 35.36]]
+                  },
+                  distance: 180000,
+                  duration: 15000
+                }
+              ]
+            }),
+            { status: 200 }
+          )
+        }
+        // コンビニは休憩スポット、その他のカテゴリは寄り道候補（いずれもルート頂点上）。
+        const name = url.pathname.includes('convenience_store') ? 'コンビニ峠店' : '峠の展望台'
+        const id = url.pathname.includes('convenience_store') ? 'poi.store' : 'poi.view'
+        return new Response(
+          JSON.stringify({
+            features: [
+              { geometry: { coordinates: routeVertex }, properties: { mapbox_id: id, name } }
+            ]
+          }),
+          { status: 200 }
+        )
+      })
+    )
+
+    const app = buildApp()
+    const res = await postPlan(app, {
+      ...validBody,
+      detourLevel: 2,
+      rest: { enabled: true, intervalMinutes: 90, mode: 'konbini' }
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { waypoints: unknown[]; rests: unknown[] }
+    expect(body.waypoints.length).toBeGreaterThanOrEqual(1)
+    expect(body.rests.length).toBeGreaterThanOrEqual(1)
+  })
+
   it('不正なボディは 400 を返す（Mapbox は呼ばない）', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)

@@ -4,8 +4,10 @@ import {
   DEFAULT_DETOUR_LEVEL,
   DETOUR_LEVEL_MAX,
   DETOUR_LEVEL_MIN,
+  formatAtMinute,
   formatDistance,
-  formatDuration
+  formatDuration,
+  REST_TYPE_META
 } from './plan'
 
 describe('buildPlanRequest', () => {
@@ -22,6 +24,12 @@ describe('buildPlanRequest', () => {
   it('detourLevel を明示指定できる', () => {
     const body = buildPlanRequest([0, 0], [1, 1], 3)
     expect(body.detourLevel).toBe(3)
+  })
+
+  it('休憩設定を渡せる（省略時は無効）', () => {
+    const rest = { enabled: true, intervalMinutes: 60, mode: 'local' as const }
+    const body = buildPlanRequest([0, 0], [1, 1], 2, rest)
+    expect(body.rest).toEqual(rest)
   })
 
   it('既定の detourLevel は 0（素のルート）', () => {
@@ -54,5 +62,21 @@ describe('formatDistance', () => {
   it('小数第1位までの文字列にする', () => {
     expect(formatDistance(152.4)).toBe('152.4')
     expect(formatDistance(10)).toBe('10.0')
+  })
+})
+
+describe('formatAtMinute', () => {
+  it('経過時間を「◯分後」形式にする', () => {
+    expect(formatAtMinute(45)).toBe('45分後')
+    expect(formatAtMinute(90)).toBe('1時間30分後')
+  })
+})
+
+describe('REST_TYPE_META', () => {
+  it('全休憩種別のラベル・アイコンを持つ', () => {
+    for (const type of ['konbini', 'michinoeki', 'cafe', 'gas'] as const) {
+      expect(REST_TYPE_META[type].label).toBeTruthy()
+      expect(REST_TYPE_META[type].icon).toBeTruthy()
+    }
   })
 })
