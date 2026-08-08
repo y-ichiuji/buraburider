@@ -1,3 +1,124 @@
+/*
+ * ブラブライダー デザイントークン & ベーススタイル。
+ * 全コンポーネントは以下の CSS 変数のみを参照し、生の hex を各所に散らさない。
+ * 詳細は docs/design-system.md を参照。
+ */
+
+:root {
+  /* 背景（ダーク基調） */
+  --bg: #0a0a0b; /* ページ最背面（ほぼ黒） */
+  --surface: #16161a; /* パネル・カード */
+  --surface-2: #1f2027; /* 一段持ち上げた面 */
+  --border: #2e2f37; /* 境界線 */
+
+  /* オレンジ（アクセント） */
+  --primary: #ff6a00; /* 主アクセント（CTA・アクティブ） */
+  --primary-hi: #ff8c3a; /* ハイライト・ホバー */
+  --primary-dim: #c24e00; /* 沈めたオレンジ */
+  --on-primary: #0a0a0b; /* オレンジ上の文字（黒） */
+
+  /* テキスト */
+  --text: #f5f5f7; /* 主要テキスト */
+  --text-muted: #a1a1aa; /* 補助テキスト */
+
+  /* 状態色 */
+  --danger: #ff3b30; /* SOS・危険（凍結/落ち葉など） */
+  --success: #34c759;
+
+  /* エフェクト */
+  --grad-heat: linear-gradient(135deg, #ff6a00 0%, #ff9a3d 100%);
+  --glow-primary: 0 0 0 1px rgba(255, 106, 0, 0.4), 0 4px 20px rgba(255, 106, 0, 0.25);
+  --radius: 12px;
+  --radius-lg: 18px;
+
+  /* タイポグラフィ */
+  --font-body: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'SF Mono', ui-monospace, 'Roboto Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
 body {
-  font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  height: 100%;
+}
+
+/* --- アプリシェル ------------------------------------------------------- */
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.app-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.app-header__logo {
+  font-weight: 800;
+  font-size: 1.25rem;
+  letter-spacing: -0.01em;
+  color: var(--primary);
+}
+
+.app-header__sub {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.app-main {
+  flex: 1;
+  display: flex;
+  padding: 1rem;
+}
+
+.map-placeholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.map-placeholder__label {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 2rem;
+  letter-spacing: 0.12em;
+  color: var(--primary-dim);
+}
+
+.map-placeholder__hint {
+  margin: 0;
+  font-size: 0.85rem;
 }

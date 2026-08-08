@@ -8,6 +8,8 @@
     "preview": "$npm_execpath run build && vite preview",
     "deploy": "$npm_execpath run build && wrangler deploy",
     "cf-typegen": "wrangler types --env-interface CloudflareBindings",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "lint": "oxlint",
@@ -22,13 +24,16 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.42.2",
+    "@cloudflare/vitest-pool-workers": "^0.20.1",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.2",
     "oxfmt": "^0.61.0",
     "oxlint": "^1.76.0",
+    "typescript": "^5.9.3",
     "vite": "^8.0.16",
     "vite-ssr-components": "^0.6.1",
+    "vitest": "^4.1.10",
     "wrangler": "^4.104.0"
   }
 }
