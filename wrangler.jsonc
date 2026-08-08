@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "findy-hackathon-app",
+  "name": "buraburider",
   "main": "src/index.tsx",
   "compatibility_date": "2026-06-14",
   "compatibility_flags": ["nodejs_compat"],
@@ -24,7 +24,7 @@
     {
       "binding": "BURABURIDER_DB",
       "database_name": "buraburider",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+      "database_id": "3d8d9601-7067-4191-a20e-35574a17d198"
     }
   ],
   // Mapbox Geocoding / Search 応答のキャッシュ用 KV。
@@ -33,15 +33,12 @@
   "kv_namespaces": [
     {
       "binding": "CACHE",
-      "id": "REPLACE_WITH_KV_NAMESPACE_ID"
+      "id": "b66b4a4c558a4c8b98f38eb4d6dd6687"
     }
-  ],
-  "vars": {
-    // ブラウザの Mapbox GL JS 描画用 public token（後続ステップで SSR からフロントへ配布）。
-    // 実トークンはコミットしない。ローカルは .dev.vars の MAPBOX_PUBLIC_TOKEN が優先され、
-    // remote は `wrangler deploy` 前にここへ実 public token を設定するか secret 管理に切り替える。
-    "MAPBOX_PUBLIC_TOKEN": "REPLACE_WITH_MAPBOX_PUBLIC_TOKEN"
-  }
-  // サーバー用シークレット MAPBOX_SECRET_TOKEN は `wrangler secret put MAPBOX_SECRET_TOKEN`
-  // で登録する（ローカルは .dev.vars を使用）。コードや設定に生値を置かない。
+  ]
+  // トークンはコミットしないため vars ではなく secret で管理する（ローカルは .dev.vars）。
+  //   - MAPBOX_SECRET_TOKEN … サーバーの Directions/Search 用
+  //   - MAPBOX_PUBLIC_TOKEN … ブラウザの Mapbox GL JS 描画用（SSR が c.env から読み client へ配布）。
+  //     public token だが、無制限トークンを public リポジトリに置かないため secret 化している。
+  // いずれも `wrangler secret put <NAME>` で登録する。
 }
