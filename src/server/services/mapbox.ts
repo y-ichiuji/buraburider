@@ -234,6 +234,23 @@ export const DEFAULT_DETOUR_CATEGORIES: readonly string[] = [
   'waterfall'
 ]
 
+/**
+ * ツーリングロード候補の擬似カテゴリ id。
+ * Mapbox に「道路」の POI カテゴリは無いため、forward 検索で拾った峠・スカイライン等の
+ * Spot にこの id を付与し、絶景・名所系（DEFAULT_DETOUR_CATEGORIES）と区別する。
+ */
+export const TOURING_ROAD_CATEGORY = 'touring_road'
+
+/**
+ * ツーリングロードを forward 検索で拾うための既定キーワード。
+ * 日本のツーリングロードの代表格である峠・スカイライン・高原ラインを狙う。
+ * API 負荷を抑えるため 2〜3 語に絞る。
+ */
+export const TOURING_ROAD_KEYWORDS: readonly string[] = ['峠', 'スカイライン', '高原']
+
+/** 出発地・目的地の近傍として候補から除外する既定半径（メートル）。 */
+export const DEFAULT_EXCLUDE_NEAR_RADIUS_METERS = 3000
+
 /** Search Box カテゴリ検索の生応答（この層の外へは出さない）。 */
 interface MapboxCategoryFeature {
   geometry?: { coordinates?: number[] }
@@ -271,8 +288,20 @@ export interface CollectSpotsOptions {
   maxSpotDistanceMeters: number
   /** 検索するカテゴリ（既定 DEFAULT_DETOUR_CATEGORIES）。 */
   categories?: readonly string[]
+  /**
+   * ツーリングロードを拾う forward 検索キーワード（既定 TOURING_ROAD_KEYWORDS）。
+   * 空配列を渡すとツーリングロード収集を無効化できる。
+   */
+  touringRoadKeywords?: readonly string[]
   /** カテゴリ1件あたりの取得上限（既定 5）。 */
   perCategoryLimit?: number
+  /**
+   * この座標群のいずれかから excludeNearRadiusMeters 以内にある候補を除外する。
+   * 出発地・目的地の近傍に不自然な寄り道が挿入されるのを防ぐ用途。既定は除外なし。
+   */
+  excludeNear?: Coord[]
+  /** excludeNear の除外半径（m、既定 DEFAULT_EXCLUDE_NEAR_RADIUS_METERS）。 */
+  excludeNearRadiusMeters?: number
 }
 
 /** 度をラジアンに変換する。 */
@@ -444,11 +473,108 @@ export async function searchCategory(
   return spots
 }
 
+/** forward search の生応答を Spot[] に正規化する。category には呼び出し側の分類 id を入れる。 */
+export function normalizeForwardSpots(res: MapboxForwardResponse, category: string): Spot[] {
+  const spots: Spot[] = []
+  for (const feature of res.features ?? []) {
+    const coords = feature.geometry?.coordinates
+    if (!coords || coords.length < 2) continue
+    const [lng, lat] = coords
+    if (typeof lng !== 'number' || typeof lat !== 'number') continue
+    const props = feature.properties ?? {}
+    spots.push({
+      id: props.mapbox_id ?? `${lng},${lat}`,
+      name: props.name ?? props.name_preferred ?? '(名称不明)',
+      coord: [lng, lat],
+      category,
+      address: props.full_address ?? props.place_formatted
+    })
+  }
+  return spots
+}
+
+/** forward 検索によるスポット取得のオプション。 */
+export interface ForwardSpotSearchOptions {
+  /** 近傍バイアスの中心座標（必須）。 */
+  proximity: Coord
+  /** 最大件数（既定 5）。 */
+  limit?: number
+  /** 検索言語（既定 'ja'）。 */
+  language?: string
+  /** 国コード（既定 'jp'）。 */
+  country?: string
+}
+
+/** forward 検索スポットのキャッシュキー（proximity は 3 桁に丸めてヒット率を上げる）。 */
+export function forwardSpotCacheKey(query: string, opts: ForwardSpotSearchOptions): string {
+  const lng = opts.proximity[0].toFixed(3)
+  const lat = opts.proximity[1].toFixed(3)
+  return [
+    'forward-spot',
+    normalizeQuery(query),
+    `${lng},${lat}`,
+    opts.language ?? 'ja',
+    opts.country ?? 'jp',
+    String(opts.limit ?? 5)
+  ].join(':')
+}
+
+/**
+ * forward 検索でキーワード（峠・スカイライン等）に一致するスポットを近傍で取得し Spot[] を返す。
+ * Mapbox に「道路」の POI カテゴリが無いため、ツーリングロードはこの forward 検索で拾う。
+ * ノイズ低減のため、結果名にキーワードを含むものだけを採用する。
+ * 取得結果には呼び出し側の category を付与し、GET 応答は KV に TTL 付きでキャッシュする。
+ */
+export async function searchForwardSpots(
+  query: string,
+  category: string,
+  opts: ForwardSpotSearchOptions,
+  deps: MapboxDeps
+): Promise<Spot[]> {
+  const cacheKey = forwardSpotCacheKey(query, opts)
+
+  if (deps.cache) {
+    const cached = await deps.cache.get<Spot[]>(cacheKey, 'json')
+    if (cached) return cached
+  }
+
+  const url = new URL(`${MAPBOX_BASE}/search/searchbox/v1/forward`)
+  url.searchParams.set('q', query)
+  url.searchParams.set('proximity', `${opts.proximity[0]},${opts.proximity[1]}`)
+  url.searchParams.set('language', opts.language ?? 'ja')
+  url.searchParams.set('country', opts.country ?? 'jp')
+  url.searchParams.set('limit', String(opts.limit ?? 5))
+  url.searchParams.set('access_token', deps.token)
+
+  const res = await fetch(url)
+  if (!res.ok) {
+    throw new MapboxError(
+      `Mapbox forward search に失敗しました (${res.status})`,
+      res.status,
+      await res.text()
+    )
+  }
+
+  const json = (await res.json()) as MapboxForwardResponse
+  const spots = normalizeForwardSpots(json, category).filter((s) => s.name.includes(query))
+
+  if (deps.cache) {
+    await deps.cache.put(cacheKey, JSON.stringify(spots), {
+      expirationTtl: SEARCH_CACHE_TTL_SECONDS
+    })
+  }
+
+  return spots
+}
+
 /**
  * 基本ルート沿いの POI 候補を収集する。
- * ルート線を sampleCount 点サンプリングし、各点 × 各カテゴリでカテゴリ検索を叩く。
- * 個々のカテゴリ検索が失敗しても全体は止めず（allSettled）、成功分だけを集める。
- * ルートからの距離でフィルタし、重複を除去した Spot[] を返す。
+ * ルート線を sampleCount 点サンプリングし、各点で
+ *   - 各カテゴリのカテゴリ検索（絶景・名所・自然系）
+ *   - 各キーワードの forward 検索（ツーリングロード = 峠・スカイライン・高原ライン）
+ * を叩く。個々の検索が失敗しても全体は止めず（allSettled）、成功分だけを集める。
+ * ルートからの距離でフィルタし、excludeNear（出発地・目的地など）の近傍を除外し、
+ * 重複を除去した Spot[] を返す。
  */
 export async function collectRouteSpots(
   route: Route,
@@ -456,14 +582,24 @@ export async function collectRouteSpots(
   deps: MapboxDeps
 ): Promise<Spot[]> {
   const categories = opts.categories ?? DEFAULT_DETOUR_CATEGORIES
+  const touringKeywords = opts.touringRoadKeywords ?? TOURING_ROAD_KEYWORDS
+  const perLimit = opts.perCategoryLimit ?? 5
   const path = route.geojson.coordinates
   const samples = sampleAlongLine(route.geojson, opts.sampleCount)
 
   const tasks: Promise<Spot[]>[] = []
   for (const point of samples) {
     for (const category of categories) {
+      tasks.push(searchCategory(category, { proximity: point, limit: perLimit }, deps))
+    }
+    for (const keyword of touringKeywords) {
       tasks.push(
-        searchCategory(category, { proximity: point, limit: opts.perCategoryLimit ?? 5 }, deps)
+        searchForwardSpots(
+          keyword,
+          TOURING_ROAD_CATEGORY,
+          { proximity: point, limit: perLimit },
+          deps
+        )
       )
     }
   }
@@ -477,5 +613,15 @@ export async function collectRouteSpots(
   const near = all.filter(
     (spot) => distanceToPathMeters(spot.coord, path) <= opts.maxSpotDistanceMeters
   )
-  return dedupeSpots(near)
+
+  const excludeNear = opts.excludeNear ?? []
+  const excludeRadius = opts.excludeNearRadiusMeters ?? DEFAULT_EXCLUDE_NEAR_RADIUS_METERS
+  const kept =
+    excludeNear.length === 0
+      ? near
+      : near.filter(
+          (spot) => !excludeNear.some((c) => haversineMeters(spot.coord, c) <= excludeRadius)
+        )
+
+  return dedupeSpots(kept)
 }

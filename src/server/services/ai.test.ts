@@ -43,6 +43,10 @@ describe('waypointTypeForCategory', () => {
     expect(waypointTypeForCategory('unknown_cat')).toBe('poi')
     expect(waypointTypeForCategory(undefined)).toBe('poi')
   })
+
+  it('touring_road は winding（ワインディング）に対応する', () => {
+    expect(waypointTypeForCategory('touring_road')).toBe('winding')
+  })
 })
 
 describe('spotToWaypoint', () => {
@@ -79,6 +83,14 @@ describe('scoreSpot / selectByScore', () => {
     const picked = selectByScore(spots, route, 2, 3)
     expect(picked).toHaveLength(2)
     expect(picked.map((s) => s.id)).not.toContain('b')
+  })
+
+  it('touring_road は同条件の絶景・名所より高スコアで最優先に選ばれる', () => {
+    const road = spot('road', 138.5, 35.0, 'touring_road')
+    const view = spot('view', 138.5, 35.0, 'viewpoint')
+    expect(scoreSpot(road, route, 3)).toBeGreaterThan(scoreSpot(view, route, 3))
+    // 1 件だけ選ぶと touring_road が選ばれる。
+    expect(selectByScore([view, road], route, 1, 3).map((s) => s.id)).toEqual(['road'])
   })
 })
 
@@ -139,6 +151,15 @@ describe('buildSelectionMessages', () => {
     expect(messages[0].role).toBe('system')
     expect(messages[1].content).toContain('0: spot-a')
     expect(messages[1].content).toContain('"selected"')
+  })
+
+  it('ツーリングロードを最優先にする指示を含む', () => {
+    const messages = buildSelectionMessages([spot('a', 138.5, 35, 'touring_road')], 3, 1)
+    const joined = messages.map((m) => m.content).join('\n')
+    expect(joined).toContain('最優先')
+    expect(joined).toContain('ツーリングロード')
+    // 候補リストには category が含まれ AI の判断材料になる。
+    expect(messages[1].content).toContain('touring_road')
   })
 })
 

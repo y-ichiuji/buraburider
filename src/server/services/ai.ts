@@ -8,7 +8,7 @@
 // 機能が壊れないことを保証する。
 
 import type { Route, Spot, Waypoint, WaypointType } from '../types'
-import { distanceToPathMeters, nearestVertexIndex } from './mapbox'
+import { distanceToPathMeters, nearestVertexIndex, TOURING_ROAD_CATEGORY } from './mapbox'
 
 /**
  * スポット選定に用いる Workers AI モデル。
@@ -23,6 +23,7 @@ export interface AiDeps {
 
 /** カテゴリ（canonical id）→ 経由地種別のマッピング。未知は 'poi'。 */
 const TYPE_BY_CATEGORY: Record<string, WaypointType> = {
+  [TOURING_ROAD_CATEGORY]: 'winding',
   viewpoint: 'scenic',
   waterfall: 'scenic',
   nature_reserve: 'scenic',
@@ -38,6 +39,8 @@ const TYPE_BY_CATEGORY: Record<string, WaypointType> = {
 
 /** スコアリングのカテゴリ重み（体験価値の目安）。未知は 0.4。 */
 const CATEGORY_WEIGHT: Record<string, number> = {
+  // ツーリングロード（良い道）はプロダクトの核。絶景・名所を上回る最大重み。
+  [TOURING_ROAD_CATEGORY]: 1.4,
   viewpoint: 1.0,
   waterfall: 0.9,
   nature_reserve: 0.8,
@@ -97,6 +100,8 @@ export function buildSelectionMessages(
   const system =
     'あなたはバイク乗りの寄り道ルートを設計するアシスタントです。' +
     '与えられた候補地から、道中の体験が最も豊かになる立ち寄り先を選びます。' +
+    '最優先は「良い道・ツーリングロード（峠・ワインディング・スカイライン・絶景ドライブ）」です。' +
+    '次点で絶景・名所を選びます。各候補の（）内はカテゴリで、touring_road がツーリングロードです。' +
     '必ず指定された JSON 形式だけを返し、前後に説明文を書かないでください。'
   const user =
     `寄り道度は ${level}（0-5、大きいほど寄り道を増やす）です。` +

@@ -123,7 +123,12 @@ export async function planRoute(input: PlanRequest, deps: PlanDeps): Promise<Pla
     try {
       const spots = await collectSpots(
         baseRoute,
-        { sampleCount: params.sampleCount, maxSpotDistanceMeters: params.maxSpotDistanceMeters },
+        {
+          sampleCount: params.sampleCount,
+          maxSpotDistanceMeters: params.maxSpotDistanceMeters,
+          // 出発直後・到着直前の不自然な寄り道を避けるため origin/destination 近傍を除外する。
+          excludeNear: [input.origin, input.destination]
+        },
         deps.mapbox
       )
       waypoints = await selectWaypoints(spots, baseRoute, input.detourLevel, params.waypointCount, {

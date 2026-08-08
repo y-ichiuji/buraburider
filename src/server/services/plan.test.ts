@@ -216,6 +216,19 @@ describe('planRoute（detourLevel >= 1）', () => {
     expect(secondCoords).toHaveLength(MAX_DETOUR_WAYPOINTS + 2)
   })
 
+  it('collectSpots に origin/destination を excludeNear として渡す', async () => {
+    const getDirections = makeGetDirections(async () => fakeRoute)
+    const collectSpots = makeCollect(candidateSpots)
+    await planRoute(detourRequest, {
+      mapbox: { token: 't' },
+      getDirections,
+      collectSpots,
+      selectWaypoints: makeSelect(selectedWaypoints)
+    })
+    const passedOpts = collectSpots.mock.calls[0][1]
+    expect(passedOpts.excludeNear).toEqual([detourRequest.origin, detourRequest.destination])
+  })
+
   it('ai を選定関数へ引き渡す', async () => {
     const ai = { run: vi.fn() } as unknown as Ai
     const selectWaypoints = makeSelect(selectedWaypoints)
