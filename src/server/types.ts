@@ -98,3 +98,49 @@ export interface PlanResponse {
   /** 挿入された休憩ポイント（ステップ3では空）。 */
   rests: Rest[]
 }
+
+// --- 路面報告 API（③ 安全・快適ルーティングの土台）------------------------
+// architecture.md §4 の D1 スキーマ `road_reports` に対応。
+
+/** 路面ハザードの種別。砂利・落ち葉・凍結。 */
+export type HazardType = 'gravel' | 'leaves' | 'ice'
+
+/** 路面報告（D1 `road_reports` の1レコードを正規化した形）。 */
+export interface RoadReport {
+  /** 一意な報告 ID（UUID）。 */
+  id: string
+  /** 報告地点の経度。 */
+  lng: number
+  /** 報告地点の緯度。 */
+  lat: number
+  /** ハザード種別。 */
+  hazard: HazardType
+  /** 報告時刻（epoch ms）。 */
+  reportedAt: number
+}
+
+/** `POST /api/reports` のリクエストボディ。 */
+export interface CreateReportRequest {
+  /** 報告地点 `[lng, lat]`。 */
+  coord: Coord
+  /** ハザード種別。 */
+  hazard: HazardType
+}
+
+/** 路面報告の一覧取得に使う矩形範囲 `[minLng, minLat, maxLng, maxLat]`。 */
+export type Bbox = [number, number, number, number]
+
+// --- 走行セッション（④ SOS の土台、RideSession Durable Object の状態）------
+// architecture.md §4 の Durable Objects（RideSession）に対応。1 ライド = 1 インスタンス。
+
+/** RideSession Durable Object が保持する走行セッション状態。 */
+export interface RideSessionState {
+  /** 現在ナビ中のルート計画。未開始なら null。 */
+  route: PlanResponse | null
+  /** 進捗（0〜1）。ルート線上の進行度合いの近似。 */
+  progress: number
+  /** SOS 発動中か。 */
+  sosActive: boolean
+  /** SOS 発動前の元ルート（復帰用に退避）。未発動なら null。 */
+  routeBeforeSos: PlanResponse | null
+}

@@ -19,6 +19,21 @@
       "id": "REPLACE_WITH_KV_NAMESPACE_ID"
     }
   ],
+  // D1 / Durable Objects は miniflare がローカル模擬するためリモート接続を張らない。
+  // 本番 wrangler.jsonc と同じバインディング名で揃える（AI だけは除外を維持）。
+  // テストの D1 スキーマは setupFiles（test/apply-d1-migrations.ts）が
+  // migrations/ を applyD1Migrations で適用する。
+  "durable_objects": {
+    "bindings": [{ "name": "RideSession", "class_name": "RideSession" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RideSession"] }],
+  "d1_databases": [
+    {
+      "binding": "BURABURIDER_DB",
+      "database_name": "buraburider",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+    }
+  ],
   "vars": {
     "MAPBOX_PUBLIC_TOKEN": "REPLACE_WITH_MAPBOX_PUBLIC_TOKEN"
   }

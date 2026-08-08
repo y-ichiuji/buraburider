@@ -8,6 +8,25 @@
   "ai": {
     "binding": "AI"
   },
+  // 走行セッション（④ SOS の土台）。RideSession は Agents SDK の Durable Object。
+  // 1 ライド = 1 インスタンス（現在ルート・進捗・SOS 前の元ルートを保持）。
+  "durable_objects": {
+    "bindings": [{ "name": "RideSession", "class_name": "RideSession" }]
+  },
+  // Durable Object のマイグレーション（SQLite バック）。
+  // 既存タグは編集せず、クラス追加時は新しいタグを足すこと。
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RideSession"] }],
+  // 路面報告・保存ルート用の D1（③ 安全・快適ルーティングの土台）。
+  // database_id はプレースホルダ。デプロイ前に `wrangler d1 create buraburider` で発行した
+  // 実 id へ差し替えること。ローカル開発・テストは miniflare がローカル模擬する。
+  // スキーマは migrations/0001_init.sql（`wrangler d1 migrations apply buraburider` で適用）。
+  "d1_databases": [
+    {
+      "binding": "BURABURIDER_DB",
+      "database_name": "buraburider",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+    }
+  ],
   // Mapbox Geocoding / Search 応答のキャッシュ用 KV。
   // ローカル開発は miniflare が模擬するため id はプレースホルダで良い。
   // remote デプロイ前に `wrangler kv namespace create CACHE` で発行した実 id に差し替えること。
@@ -25,7 +44,4 @@
   }
   // サーバー用シークレット MAPBOX_SECRET_TOKEN は `wrangler secret put MAPBOX_SECRET_TOKEN`
   // で登録する（ローカルは .dev.vars を使用）。コードや設定に生値を置かない。
-  //
-  // RideSession Durable Object（④ の土台）はステップ 7 で追加する。
-  // その際に durable_objects / migrations バインディングをここへ戻す。
 }

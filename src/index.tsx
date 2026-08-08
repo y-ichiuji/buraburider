@@ -1,13 +1,19 @@
 import { Hono } from 'hono'
+import { agentsMiddleware } from 'hono-agents'
 import { renderToReadableStream } from 'react-dom/server'
 import { Link, ReactRefresh, Script, ViteClient } from 'vite-ssr-components/react'
 import { createApiApp } from './server/routes'
 import { buildMapboxTokenScript } from './shared/mapbox-token'
 
-// NOTE: RideSession Durable Object（④ の土台）はステップ 7 で追加する。
-// その際に `agentsMiddleware()`（hono-agents）と durable_objects バインディングを戻す。
+// RideSession Durable Object（④ SOS の土台）を Worker から export する。
+// wrangler.jsonc の durable_objects / migrations バインディングと対応する。
+export { RideSession } from './agents/ride-session'
 
 const app = new Hono<{ Bindings: CloudflareBindings }>()
+
+// Agents SDK のルーティング（/agents/:agent/:name への WebSocket/HTTP）を有効化する。
+// 対象外のパスは next() で素通しするため、/api と SSR ('/') には影響しない。
+app.use('*', agentsMiddleware())
 
 // API ルート（/api/*）をサブアプリとしてマウント。
 app.route('/api', createApiApp())
