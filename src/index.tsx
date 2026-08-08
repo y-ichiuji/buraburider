@@ -24,6 +24,24 @@ app.get('/', async (c) => {
           <meta charSet="utf-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
           <title>ブラブライダー</title>
+          <meta
+            name="description"
+            content="「最高の道中」を提案するバイク乗り向けの寄り道ナビ、ブラブライダー。"
+          />
+
+          {/* PWA: マニフェスト。theme-color はダークな全画面地図に馴染ませて黒基調に、
+              マニフェスト側の theme_color はブランドのオレンジ（アプリ chrome のアクセント）。 */}
+          <link rel="manifest" href="/manifest.webmanifest" />
+          <meta name="theme-color" content="#0a0a0b" />
+
+          {/* iOS ホーム画面追加（スタンドアロン表示・ステータスバー透過で全画面地図を活かす）。 */}
+          <meta name="mobile-web-app-capable" content="yes" />
+          <meta name="apple-mobile-web-app-capable" content="yes" />
+          <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+          <meta name="apple-mobile-web-app-title" content="Buraburider" />
+          <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+          <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+
           <script dangerouslySetInnerHTML={{ __html: tokenScript }} />
           <ViteClient />
           <ReactRefresh />

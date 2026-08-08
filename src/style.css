@@ -285,6 +285,78 @@ body {
   padding-bottom: max(0.25rem, env(safe-area-inset-bottom));
 }
 
+/* --- 走行設定（寄り道・休憩）の折りたたみグループ ---------------------- */
+/* 下部が縦に伸びる問題への対処: ヘッダーバーで開閉し、本体はスクロール可能にする。 */
+
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-height: 0; /* flex 子のスクロールを効かせるため */
+}
+
+.settings-group__toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  min-height: 48px;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 45%);
+  color: var(--text);
+  font-family: var(--font-body);
+  cursor: pointer;
+  text-align: left;
+}
+
+.settings-group__title {
+  flex: 0 0 auto;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.settings-group__summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.settings-group__chevron {
+  flex: 0 0 auto;
+  color: var(--primary);
+  font-size: 0.9rem;
+  transition: transform 0.15s ease;
+}
+
+.settings-group[data-open='true'] .settings-group__chevron {
+  transform: rotate(180deg);
+}
+
+/* 本体はスクロール領域。ここだけがスクロールし、結果パネル・トグル・CTA は常に見える。
+ * 小さい画面（iPhone SE 高さ 568px 等）でも CTA がビューポート外へ押し出されないよう
+ * 上限は控えめ（38dvh）に。子パネルの glow/shadow が切れないよう左右に余白を確保する。 */
+.settings-group__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-height: 0;
+  max-height: 38dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 2px;
+}
+
 /* 主要 CTA（ルート生成）: 黒×オレンジの熱グラデ + グロー。 */
 .btn-generate {
   pointer-events: auto;
@@ -819,4 +891,215 @@ body {
 .rest-mode__hint {
   font-size: 0.68rem;
   color: var(--text-muted);
+}
+
+/* --- SOS ボタン（機能④の土台）----------------------------------------- */
+/* 画面右端に透過の大サイズで常時固定。誤作動防止でスワイプ / 1秒長押しで発動。 */
+
+.sos {
+  position: fixed;
+  top: 50%;
+  right: max(0.75rem, env(safe-area-inset-right));
+  transform: translateY(-50%);
+  z-index: 20;
+  /* 器はクリック透過、操作要素だけ受け取る（地図操作を妨げない）。 */
+  pointer-events: none;
+}
+
+.sos__trigger {
+  pointer-events: auto;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 74px;
+  height: 74px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--danger) 70%, transparent);
+  /* 透過（地図が透けて見える大サイズ）。 */
+  background: color-mix(in srgb, var(--danger) 20%, transparent);
+  backdrop-filter: blur(6px);
+  color: var(--text);
+  cursor: pointer;
+  /* スワイプ判定のためブラウザのスクロール/パンにポインタを奪わせない。 */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  box-shadow: 0 4px 18px rgb(0 0 0 / 45%);
+  transition:
+    transform 0.08s ease,
+    background 0.15s ease;
+}
+
+.sos__trigger[data-phase='pressing'] {
+  transform: scale(0.96);
+  background: color-mix(in srgb, var(--danger) 34%, transparent);
+}
+
+.sos__trigger[data-phase='armed'] {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+/* 長押しの進捗リング（押下中に1秒かけて満ちる視覚フィードバック）。 */
+.sos__ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  pointer-events: none;
+}
+
+.sos__trigger[data-phase='pressing'] .sos__ring {
+  border-color: var(--danger);
+  animation: sos-hold 1s linear forwards;
+}
+
+@keyframes sos-hold {
+  from {
+    transform: scale(0.6);
+    opacity: 0.2;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.sos__label {
+  font-family: var(--font-mono);
+  font-weight: 800;
+  font-size: 1.05rem;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  color: var(--danger);
+}
+
+.sos__trigger[data-phase='armed'] .sos__label {
+  color: var(--on-primary);
+}
+
+.sos__hint {
+  margin-top: 0.15rem;
+  font-size: 0.52rem;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+
+/* 発動後のカテゴリ選択シート（トリガーの上に開く）。 */
+.sos__sheet {
+  pointer-events: auto;
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.6rem);
+  width: min(76vw, 300px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.8rem;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 10px 32px rgb(0 0 0 / 55%);
+}
+
+.sos__sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.sos__sheet-title {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.sos__close {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.sos__cats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sos__cat {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 52px;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.12s ease;
+}
+
+.sos__cat[data-active='true'] {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 16%, var(--surface-2));
+}
+
+.sos__cat-icon {
+  flex: 0 0 auto;
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.sos__cat-label {
+  flex: 0 0 auto;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.sos__cat-hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.sos__feedback {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--danger);
+}
+
+.sos__feedback-note {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+/* --- レスポンシブ: 広い画面は中央にモバイル幅カラムで見せる ------------ */
+
+@media (min-width: 640px) {
+  .overlay {
+    max-width: 480px;
+    margin-inline: auto;
+  }
 }

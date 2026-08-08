@@ -5,10 +5,11 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import type { Coord, RestConfig, SuggestItem } from '../server/types'
-import { DetourSlider } from './components/DetourSlider'
+import { DetourSlider, detourLevelLabel } from './components/DetourSlider'
 import { MapView } from './components/MapView'
 import { RestSettings } from './components/RestSettings'
 import { RoutePanel } from './components/RoutePanel'
+import { SosButton } from './components/SosButton'
 import { SuggestField } from './components/SuggestField'
 import { useGeolocation } from './hooks/useGeolocation'
 import { useRoutePlan } from './hooks/useRoutePlan'
@@ -35,6 +36,14 @@ function App() {
   const [rest, setRest] = useState<RestConfig>(DEFAULT_REST_CONFIG)
 
   const { plan, status: planStatus, error: planError, generate, reset } = useRoutePlan()
+
+  // 走行設定（寄り道・休憩）の開閉。増えたコントロールで下部が伸びるため、
+  // 生成前は設定を開いて主役にし、生成後は結果を主役にするため畳む（手動再開閉も可）。
+  const [settingsOpen, setSettingsOpen] = useState(true)
+  const hasPlan = plan !== null
+  useEffect(() => {
+    setSettingsOpen(!hasPlan)
+  }, [hasPlan])
 
   // 実際に使う出発地座標: 手動選択があればそれ、なければ現在地。
   const origin: Coord = originItem?.coord ?? geoOrigin
@@ -121,13 +130,36 @@ function App() {
         <div className="bottom-dock">
           <RoutePanel plan={plan} status={planStatus} error={planError} />
 
-          <DetourSlider
-            value={detourLevel}
-            onChange={setDetourLevel}
-            disabled={planStatus === 'loading'}
-          />
+          <section className="settings-group" data-open={settingsOpen ? 'true' : undefined}>
+            <button
+              type="button"
+              className="settings-group__toggle"
+              aria-expanded={settingsOpen}
+              onClick={() => setSettingsOpen((open) => !open)}
+            >
+              <span className="settings-group__title">走行設定</span>
+              <span className="settings-group__summary">
+                {`${detourLevelLabel(detourLevel)}・${
+                  rest.enabled ? `休憩${rest.intervalMinutes}分` : '休憩なし'
+                }`}
+              </span>
+              <span className="settings-group__chevron" aria-hidden="true">
+                ▾
+              </span>
+            </button>
 
-          <RestSettings value={rest} onChange={setRest} disabled={planStatus === 'loading'} />
+            {settingsOpen && (
+              <div className="settings-group__body">
+                <DetourSlider
+                  value={detourLevel}
+                  onChange={setDetourLevel}
+                  disabled={planStatus === 'loading'}
+                />
+
+                <RestSettings value={rest} onChange={setRest} disabled={planStatus === 'loading'} />
+              </div>
+            )}
+          </section>
 
           <button
             type="button"
@@ -139,6 +171,8 @@ function App() {
           </button>
         </div>
       </div>
+
+      <SosButton />
     </div>
   )
 }
