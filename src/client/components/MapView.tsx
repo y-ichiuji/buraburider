@@ -1,7 +1,7 @@
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { useEffect, useRef } from 'react'
-import type { Coord, LineString } from '../../server/types'
+import type { Coord, LineString, Waypoint } from '../../server/types'
 import { DEFAULT_ORIGIN } from '../lib/geo'
 
 /** ダーク基調に合わせた Mapbox スタイル。 */
@@ -10,6 +10,8 @@ const MAP_STYLE = 'mapbox://styles/mapbox/dark-v11'
 const ORIGIN_COLOR = '#34c759'
 /** 目的地マーカー色（オレンジ = --primary）。 */
 const DEST_COLOR = '#ff6a00'
+/** 寄り道経由地マーカー色（ハイライトオレンジ = --primary-hi）。 */
+const WAYPOINT_COLOR = '#ff8c3a'
 /** ルートライン色（オレンジ = --primary）。 */
 const ROUTE_COLOR = '#ff6a00'
 /** ルートの下地（casing）色（ほぼ黒 = --bg）。 */
@@ -38,17 +40,20 @@ export interface MapViewProps {
   focus: Coord | null
   /** 描画するルートの線形（GeoJSON LineString）。null なら消去。 */
   route: LineString | null
+  /** 寄り道の経由地。順に番号付きマーカーを表示する。 */
+  waypoints?: Waypoint[]
 }
 
 /**
  * Mapbox GL JS による全画面地図。出発地・目的地のマーカー表示と、focus 変更時の flyTo を行う。
  * token が無効な場合は地図を初期化せず、案内用のフォールバックを表示する。
  */
-export function MapView({ token, origin, destination, focus, route }: MapViewProps) {
+export function MapView({ token, origin, destination, focus, route, waypoints }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const originMarkerRef = useRef<mapboxgl.Marker | null>(null)
   const destMarkerRef = useRef<mapboxgl.Marker | null>(null)
+  const waypointMarkersRef = useRef<mapboxgl.Marker[]>([])
 
   // 地図の初期化（token 確定後に一度だけ）。
   useEffect(() => {
@@ -88,6 +93,7 @@ export function MapView({ token, origin, destination, focus, route }: MapViewPro
       mapRef.current = null
       originMarkerRef.current = null
       destMarkerRef.current = null
+      waypointMarkersRef.current = []
     }
     // focus / origin は初期センターとしてのみ使用。以降の移動は別 effect が担う。
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -122,6 +128,27 @@ export function MapView({ token, origin, destination, focus, route }: MapViewPro
     }
     destMarkerRef.current.setLngLat(destination).addTo(map)
   }, [destination])
+
+  // 寄り道経由地マーカーの更新。順番の番号を振った小さめのピンを立てる。
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    // 既存の経由地マーカーを一旦すべて外す。
+    for (const marker of waypointMarkersRef.current) marker.remove()
+    waypointMarkersRef.current = []
+
+    const list = waypoints ?? []
+    list.forEach((wp, i) => {
+      const el = document.createElement('div')
+      el.className = 'waypoint-marker'
+      el.textContent = String(i + 1)
+      el.style.background = WAYPOINT_COLOR
+      el.title = wp.name
+      const marker = new mapboxgl.Marker({ element: el }).setLngLat(wp.coord).addTo(map)
+      waypointMarkersRef.current.push(marker)
+    })
+  }, [waypoints])
 
   // focus が変わったら地図を移動。
   useEffect(() => {

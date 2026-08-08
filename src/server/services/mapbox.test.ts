@@ -1,10 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { LineString, Route, Spot } from '../types'
 import {
+  categoryCacheKey,
+  collectRouteSpots,
+  dedupeSpots,
+  distanceToPathMeters,
   geocodeForward,
+  haversineMeters,
   MapboxError,
+  nearestVertexIndex,
+  normalizeCategory,
   normalizeDirections,
   normalizeQuery,
   normalizeSuggest,
+  sampleAlongLine,
+  searchCategory,
   SEARCH_CACHE_TTL_SECONDS,
   suggestCacheKey
 } from './mapbox'
@@ -190,5 +200,268 @@ describe('geocodeForward', () => {
     const fetchMock = vi.fn(async () => new Response('boom', { status: 429 }))
     vi.stubGlobal('fetch', fetchMock)
     await expect(geocodeForward('x', {}, { token: 't' })).rejects.toBeInstanceOf(MapboxError)
+  })
+})
+
+// --- 幾何ヘルパー（POI 収集用の純粋関数）---------------------------------
+
+describe('haversineMeters', () => {
+  it('同一点は 0、東京〜富士山方面は概ね 100km 前後', () => {
+    expect(haversineMeters([139.0, 35.0], [139.0, 35.0])).toBe(0)
+    const d = haversineMeters([139.767, 35.681], [138.727, 35.36])
+    expect(d).toBeGreaterThan(90000)
+    expect(d).toBeLessThan(120000)
+  })
+})
+
+describe('sampleAlongLine', () => {
+  const line: LineString = {
+    type: 'LineString',
+    coordinates: [
+      [0, 0],
+      [1, 0],
+      [2, 0],
+      [3, 0],
+      [4, 0]
+    ]
+  }
+
+  it('端点を含む maxSamples 点を弧長按分で返す', () => {
+    const samples = sampleAlongLine(line, 3)
+    expect(samples).toHaveLength(3)
+    expect(samples[0]).toEqual([0, 0])
+    expect(samples[2]).toEqual([4, 0])
+    expect(samples[1][0]).toBeCloseTo(2, 5)
+  })
+
+  it('maxSamples が頂点数以上なら全頂点を返す', () => {
+    expect(sampleAlongLine(line, 10)).toEqual(line.coordinates)
+  })
+
+  it('空の座標列は空配列', () => {
+    expect(sampleAlongLine({ type: 'LineString', coordinates: [] }, 3)).toEqual([])
+  })
+})
+
+describe('distanceToPathMeters / nearestVertexIndex', () => {
+  const path: [number, number][] = [
+    [139.0, 35.0],
+    [138.5, 35.0],
+    [138.0, 35.0]
+  ]
+
+  it('最近傍頂点までの距離を返す', () => {
+    expect(distanceToPathMeters([138.5, 35.0], path)).toBe(0)
+    expect(distanceToPathMeters([138.5, 35.01], path)).toBeGreaterThan(0)
+  })
+
+  it('最近傍頂点のインデックスを返す', () => {
+    expect(nearestVertexIndex([138.02, 35.0], path)).toBe(2)
+    expect(nearestVertexIndex([138.99, 35.0], path)).toBe(0)
+  })
+})
+
+describe('dedupeSpots', () => {
+  function s(id: string, lng: number, lat: number): Spot {
+    return { id, name: id, coord: [lng, lat] }
+  }
+
+  it('同一 id を除去する', () => {
+    const out = dedupeSpots([s('a', 139, 35), s('a', 139, 35), s('b', 138, 35)])
+    expect(out.map((x) => x.id)).toEqual(['a', 'b'])
+  })
+
+  it('近接（既定 80m 以内）の別 id も除去する', () => {
+    // 約 9m しか離れていない 2 点 → 後者を除去。
+    const out = dedupeSpots([s('a', 139.0, 35.0), s('b', 139.0001, 35.0)])
+    expect(out.map((x) => x.id)).toEqual(['a'])
+  })
+})
+
+describe('normalizeCategory', () => {
+  it('features を Spot[] に正規化し category に canonical id を入れる', () => {
+    const spots = normalizeCategory(
+      {
+        features: [
+          {
+            geometry: { coordinates: [138.7, 35.3] },
+            properties: { mapbox_id: 'poi.1', name: '○○展望台', full_address: '山梨県' }
+          }
+        ]
+      },
+      'viewpoint'
+    )
+    expect(spots).toEqual([
+      {
+        id: 'poi.1',
+        name: '○○展望台',
+        coord: [138.7, 35.3],
+        category: 'viewpoint',
+        address: '山梨県'
+      }
+    ])
+  })
+
+  it('座標が欠けた feature はスキップする', () => {
+    expect(normalizeCategory({ features: [{ properties: { name: 'x' } }] }, 'park')).toEqual([])
+  })
+})
+
+describe('categoryCacheKey', () => {
+  it('proximity を 3 桁に丸めた決定的キーを作る', () => {
+    expect(categoryCacheKey('viewpoint', { proximity: [138.72678, 35.36012] })).toBe(
+      'category:viewpoint:138.727,35.360:ja:jp:5'
+    )
+  })
+})
+
+// --- searchCategory（fetch + キャッシュ）---------------------------------
+
+describe('searchCategory', () => {
+  function createKvMock() {
+    const store = new Map<string, string>()
+    const kv = {
+      get: vi.fn(async (key: string, type?: string) => {
+        const raw = store.get(key)
+        if (raw == null) return null
+        return type === 'json' ? JSON.parse(raw) : raw
+      }),
+      put: vi.fn(async (key: string, value: string) => {
+        store.set(key, value)
+      })
+    }
+    return { kv: kv as unknown as KVNamespace, store }
+  }
+
+  it('category エンドポイントを叩き、結果をキャッシュへ格納する', async () => {
+    const { kv, store } = createKvMock()
+    const fetchMock = vi.fn(
+      async (_input: URL | RequestInfo) =>
+        new Response(
+          JSON.stringify({
+            features: [
+              {
+                geometry: { coordinates: [138.7, 35.3] },
+                properties: { mapbox_id: 'x', name: 'A' }
+              }
+            ]
+          }),
+          { status: 200 }
+        )
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const spots = await searchCategory(
+      'viewpoint',
+      { proximity: [138.7, 35.3], limit: 5 },
+      { token: 'secret', cache: kv }
+    )
+
+    const calledUrl = new URL(fetchMock.mock.calls[0][0].toString())
+    expect(calledUrl.pathname).toBe('/search/searchbox/v1/category/viewpoint')
+    expect(calledUrl.searchParams.get('proximity')).toBe('138.7,35.3')
+    expect(calledUrl.searchParams.get('access_token')).toBe('secret')
+    expect(spots).toHaveLength(1)
+    expect(spots[0].category).toBe('viewpoint')
+    expect(store.size).toBe(1)
+  })
+
+  it('キャッシュヒット時は fetch しない', async () => {
+    const { kv } = createKvMock()
+    const cached: Spot[] = [{ id: 'c', name: 'キャッシュ', coord: [1, 2], category: 'park' }]
+    await kv.put(categoryCacheKey('park', { proximity: [1, 2] }), JSON.stringify(cached))
+
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const spots = await searchCategory('park', { proximity: [1, 2] }, { token: 't', cache: kv })
+    expect(spots).toEqual(cached)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('Mapbox がエラーなら MapboxError を投げる', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('boom', { status: 500 }))
+    )
+    await expect(
+      searchCategory('viewpoint', { proximity: [1, 2] }, { token: 't' })
+    ).rejects.toBeInstanceOf(MapboxError)
+  })
+})
+
+// --- collectRouteSpots（サンプリング + フィルタ + 重複除去）--------------
+
+describe('collectRouteSpots', () => {
+  const route: Route = {
+    geojson: {
+      type: 'LineString',
+      coordinates: [
+        [139.0, 35.0],
+        [138.5, 35.0],
+        [138.0, 35.0]
+      ]
+    },
+    distanceKm: 90,
+    durationMin: 120
+  }
+
+  it('ルート近傍の候補を集め、遠い候補は除外し重複除去する', async () => {
+    // 近傍（ルート上）の A と、遠すぎる B を返すカテゴリ検索。
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            features: [
+              {
+                geometry: { coordinates: [138.5, 35.0] },
+                properties: { mapbox_id: 'near', name: '近い' }
+              },
+              {
+                geometry: { coordinates: [138.5, 36.0] },
+                properties: { mapbox_id: 'far', name: '遠い' }
+              }
+            ]
+          }),
+          { status: 200 }
+        )
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const spots = await collectRouteSpots(
+      route,
+      { sampleCount: 2, maxSpotDistanceMeters: 5000, categories: ['viewpoint'] },
+      { token: 't' }
+    )
+
+    // 'near' は複数サンプルで重複ヒットするが 1 件に、'far' は距離フィルタで除外。
+    expect(spots.map((s) => s.id)).toEqual(['near'])
+  })
+
+  it('一部のカテゴリ検索が失敗しても成功分を返す（allSettled）', async () => {
+    let call = 0
+    const fetchMock = vi.fn(async () => {
+      call++
+      if (call === 1) return new Response('boom', { status: 500 })
+      return new Response(
+        JSON.stringify({
+          features: [
+            {
+              geometry: { coordinates: [138.5, 35.0] },
+              properties: { mapbox_id: 'ok', name: 'OK' }
+            }
+          ]
+        }),
+        { status: 200 }
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const spots = await collectRouteSpots(
+      route,
+      { sampleCount: 2, maxSpotDistanceMeters: 5000, categories: ['viewpoint'] },
+      { token: 't' }
+    )
+    expect(spots.map((s) => s.id)).toEqual(['ok'])
   })
 })

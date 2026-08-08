@@ -31,7 +31,10 @@ plan.post('/plan', async (c) => {
   }
 
   try {
-    const result = await planRoute(parsed.value, { mapbox: { token, cache: c.env.CACHE } })
+    const result = await planRoute(parsed.value, {
+      mapbox: { token, cache: c.env.CACHE },
+      ai: c.env.AI
+    })
     return c.json(result)
   } catch (err) {
     if (err instanceof MapboxError) {

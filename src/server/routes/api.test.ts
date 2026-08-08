@@ -152,6 +152,119 @@ describe('POST /api/routes/plan', () => {
     expect(calledUrl.pathname).toBe('/directions/v5/mapbox/driving/139.767,35.681;138.727,35.36')
   })
 
+  // detourLevel >= 1: Directions（基本＋再計算）と Search Box カテゴリ検索、
+  // Workers AI をすべてモックし、経由地入りルートが返ることを確認する。
+  it('detourLevel>=1 で候補収集＋AI選定を経て経由地入りルートを返す', async () => {
+    // ルート頂点上に置いた候補は距離フィルタを通過する。
+    const routeVertex = [139.0, 35.5]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: URL | RequestInfo) => {
+        const url = new URL(input.toString())
+        if (url.pathname.startsWith('/directions/')) {
+          return new Response(
+            JSON.stringify({
+              routes: [
+                {
+                  geometry: {
+                    type: 'LineString',
+                    coordinates: [[139.767, 35.681], routeVertex, [138.727, 35.36]]
+                  },
+                  distance: 180000,
+                  duration: 15000
+                }
+              ]
+            }),
+            { status: 200 }
+          )
+        }
+        // カテゴリ検索: ルート頂点上の展望台を返す。
+        return new Response(
+          JSON.stringify({
+            features: [
+              {
+                geometry: { coordinates: routeVertex },
+                properties: { mapbox_id: 'poi.view', name: '峠の展望台' }
+              }
+            ]
+          }),
+          { status: 200 }
+        )
+      })
+    )
+
+    const aiRun = vi.fn(async () => ({ response: '{"selected":[0]}' }))
+    const env = {
+      MAPBOX_SECRET_TOKEN: 'test-token',
+      AI: { run: aiRun }
+    } as unknown as CloudflareBindings
+
+    const app = buildApp()
+    const res = await postPlan(app, { ...validBody, detourLevel: 3 }, env)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      waypoints: Array<{ name: string; type: string; coord: [number, number] }>
+    }
+    expect(body.waypoints).toHaveLength(1)
+    expect(body.waypoints[0].name).toBe('峠の展望台')
+    expect(body.waypoints[0].type).toBe('scenic')
+    expect(aiRun).toHaveBeenCalledTimes(1)
+
+    // カテゴリ検索エンドポイントと、経由地入りの再計算 Directions が呼ばれている。
+    const calls = (fetch as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c) => new URL(c[0].toString()).pathname
+    )
+    expect(calls.some((p) => p.startsWith('/search/searchbox/v1/category/'))).toBe(true)
+    expect(
+      calls.some((p) => p === '/directions/v5/mapbox/driving/139.767,35.681;139,35.5;138.727,35.36')
+    ).toBe(true)
+  })
+
+  it('detourLevel>=1 でも AI 未設定ならフォールバック選定で経由地を返す', async () => {
+    const routeVertex = [139.0, 35.5]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: URL | RequestInfo) => {
+        const url = new URL(input.toString())
+        if (url.pathname.startsWith('/directions/')) {
+          return new Response(
+            JSON.stringify({
+              routes: [
+                {
+                  geometry: {
+                    type: 'LineString',
+                    coordinates: [[139.767, 35.681], routeVertex, [138.727, 35.36]]
+                  },
+                  distance: 180000,
+                  duration: 15000
+                }
+              ]
+            }),
+            { status: 200 }
+          )
+        }
+        return new Response(
+          JSON.stringify({
+            features: [
+              {
+                geometry: { coordinates: routeVertex },
+                properties: { mapbox_id: 'poi.view', name: '峠の展望台' }
+              }
+            ]
+          }),
+          { status: 200 }
+        )
+      })
+    )
+
+    // AI バインディングなしの env（testEnv）でフォールバックが働く。
+    const app = buildApp()
+    const res = await postPlan(app, { ...validBody, detourLevel: 2 })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { waypoints: unknown[] }
+    expect(body.waypoints).toHaveLength(1)
+  })
+
   it('不正なボディは 400 を返す（Mapbox は呼ばない）', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)

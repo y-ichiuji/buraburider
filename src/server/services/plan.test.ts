@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { Coord, PlanRequest, Route } from '../types'
-import type { DirectionsOptions, MapboxDeps } from './mapbox'
-import { parsePlanRequest, planRoute } from './plan'
+import type { Coord, PlanRequest, Route, Spot, Waypoint } from '../types'
+import type { CollectSpotsOptions, DirectionsOptions, MapboxDeps } from './mapbox'
+import {
+  DETOUR_LEVEL_MAX,
+  detourParamsForLevel,
+  MAX_DETOUR_WAYPOINTS,
+  parsePlanRequest,
+  planRoute
+} from './plan'
 
 /** getDirections の型付きモックを作る（mock.calls を型安全に検証するため）。 */
 function makeGetDirections(impl: () => Promise<Route>) {
@@ -64,6 +70,161 @@ describe('planRoute', () => {
     await expect(
       planRoute(validRequest, { mapbox: { token: 't' }, getDirections })
     ).rejects.toThrow('boom')
+  })
+})
+
+// --- detourParamsForLevel ---------------------------------------------------
+
+describe('detourParamsForLevel', () => {
+  it('level 0 は寄り道なし（waypointCount 0）', () => {
+    expect(detourParamsForLevel(0).waypointCount).toBe(0)
+  })
+
+  it('level が上がるほど経由地数・探索点数・遠回り許容が増える', () => {
+    let prev = detourParamsForLevel(1)
+    for (let level = 2; level <= DETOUR_LEVEL_MAX; level++) {
+      const cur = detourParamsForLevel(level)
+      expect(cur.waypointCount).toBeGreaterThanOrEqual(prev.waypointCount)
+      expect(cur.maxSpotDistanceMeters).toBeGreaterThanOrEqual(prev.maxSpotDistanceMeters)
+      prev = cur
+    }
+  })
+
+  it('範囲外はクランプする', () => {
+    expect(detourParamsForLevel(-3)).toEqual(detourParamsForLevel(0))
+    expect(detourParamsForLevel(99)).toEqual(detourParamsForLevel(DETOUR_LEVEL_MAX))
+  })
+})
+
+// --- planRoute（寄り道あり）------------------------------------------------
+
+describe('planRoute（detourLevel >= 1）', () => {
+  const detourRequest: PlanRequest = { ...validRequest, detourLevel: 3 }
+
+  const candidateSpots: Spot[] = [
+    { id: 'a', name: '展望台A', coord: [139.2, 35.5], category: 'viewpoint' },
+    { id: 'b', name: '公園B', coord: [138.9, 35.4], category: 'park' }
+  ]
+
+  const selectedWaypoints: Waypoint[] = [
+    { type: 'scenic', name: '展望台A', coord: [139.2, 35.5] },
+    { type: 'poi', name: '公園B', coord: [138.9, 35.4] }
+  ]
+
+  function makeCollect(spots: Spot[]) {
+    return vi.fn((_route: Route, _opts: CollectSpotsOptions, _deps: MapboxDeps) =>
+      Promise.resolve(spots)
+    )
+  }
+
+  /** selectWaypoints の型付きモック（mock.calls を型安全に検証するため）。 */
+  function makeSelect(result: Waypoint[]) {
+    return vi.fn(
+      (_spots: Spot[], _route: Route, _level: number, _count: number, _deps: { ai?: Ai }) =>
+        Promise.resolve(result)
+    )
+  }
+
+  it('基本ルート取得→候補収集→選定→経由地入りで再計算する', async () => {
+    const getDirections = makeGetDirections(async () => fakeRoute)
+    const collectSpots = makeCollect(candidateSpots)
+    const selectWaypoints = vi.fn(async () => selectedWaypoints)
+
+    const result = await planRoute(detourRequest, {
+      mapbox: { token: 't' },
+      getDirections,
+      collectSpots,
+      selectWaypoints
+    })
+
+    // 基本ルート + 経由地入り再計算で 2 回呼ばれる。
+    expect(getDirections).toHaveBeenCalledTimes(2)
+    // 2 回目は origin, 経由地×2, destination。
+    const secondCoords = getDirections.mock.calls[1][0]
+    expect(secondCoords).toEqual([
+      detourRequest.origin,
+      [139.2, 35.5],
+      [138.9, 35.4],
+      detourRequest.destination
+    ])
+    expect(result.waypoints).toEqual(selectedWaypoints)
+  })
+
+  it('選定 count は detourParamsForLevel に一致する', async () => {
+    const getDirections = makeGetDirections(async () => fakeRoute)
+    const selectWaypoints = makeSelect(selectedWaypoints)
+    await planRoute(detourRequest, {
+      mapbox: { token: 't' },
+      getDirections,
+      collectSpots: makeCollect(candidateSpots),
+      selectWaypoints
+    })
+    const passedCount = selectWaypoints.mock.calls[0][3]
+    expect(passedCount).toBe(detourParamsForLevel(3).waypointCount)
+  })
+
+  it('候補収集が失敗しても基本ルートへフォールバックする', async () => {
+    const getDirections = makeGetDirections(async () => fakeRoute)
+    const collectSpots = vi.fn(async () => {
+      throw new Error('search down')
+    })
+    const selectWaypoints = vi.fn(async () => selectedWaypoints)
+
+    const result = await planRoute(detourRequest, {
+      mapbox: { token: 't' },
+      getDirections,
+      collectSpots,
+      selectWaypoints
+    })
+
+    expect(result.waypoints).toEqual([])
+    // 再計算はせず基本ルートのみ（1 回）。
+    expect(getDirections).toHaveBeenCalledTimes(1)
+    expect(result.route).toEqual(fakeRoute)
+  })
+
+  it('経由地ゼロ選定なら基本ルートを返す（再計算しない）', async () => {
+    const getDirections = makeGetDirections(async () => fakeRoute)
+    const result = await planRoute(detourRequest, {
+      mapbox: { token: 't' },
+      getDirections,
+      collectSpots: makeCollect([]),
+      selectWaypoints: vi.fn(async () => [])
+    })
+    expect(result.waypoints).toEqual([])
+    expect(getDirections).toHaveBeenCalledTimes(1)
+  })
+
+  it('経由地は Directions 上限（23）に収める', async () => {
+    const many: Waypoint[] = Array.from({ length: 30 }, (_v, i) => ({
+      type: 'poi' as const,
+      name: `w${i}`,
+      coord: [138 + i * 0.01, 35] as Coord
+    }))
+    const getDirections = makeGetDirections(async () => fakeRoute)
+    const result = await planRoute(detourRequest, {
+      mapbox: { token: 't' },
+      getDirections,
+      collectSpots: makeCollect(candidateSpots),
+      selectWaypoints: vi.fn(async () => many)
+    })
+    expect(result.waypoints).toHaveLength(MAX_DETOUR_WAYPOINTS)
+    const secondCoords = getDirections.mock.calls[1][0]
+    // origin + 23 + destination = 25
+    expect(secondCoords).toHaveLength(MAX_DETOUR_WAYPOINTS + 2)
+  })
+
+  it('ai を選定関数へ引き渡す', async () => {
+    const ai = { run: vi.fn() } as unknown as Ai
+    const selectWaypoints = makeSelect(selectedWaypoints)
+    await planRoute(detourRequest, {
+      mapbox: { token: 't' },
+      ai,
+      getDirections: makeGetDirections(async () => fakeRoute),
+      collectSpots: makeCollect(candidateSpots),
+      selectWaypoints
+    })
+    expect(selectWaypoints.mock.calls[0][4]).toEqual({ ai })
   })
 })
 

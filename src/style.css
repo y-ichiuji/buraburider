@@ -387,3 +387,173 @@ body {
   font-size: 0.85rem;
   color: var(--text-muted);
 }
+
+/* --- 立ち寄りスポット一覧（寄り道の経由地）----------------------------- */
+
+.stop-list {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0.5rem 0 0;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.stop-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.stop-item__index {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 50%;
+  background: var(--primary-hi);
+  color: var(--on-primary);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+
+.stop-item__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.stop-item__type {
+  flex: 0 0 auto;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+/* --- 寄り道度スライダー ------------------------------------------------- */
+
+.detour-slider {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 45%);
+}
+
+.detour-slider[data-disabled='true'] {
+  opacity: 0.6;
+}
+
+.detour-slider__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.detour-slider__title {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.detour-slider__value {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.detour-slider__num {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 1.25rem;
+  line-height: 1;
+  color: var(--primary);
+}
+
+.detour-slider__label {
+  font-size: 0.8rem;
+  color: var(--text);
+}
+
+/* トラックはグレー、選択済み（左側）はオレンジのフィル。 */
+.detour-slider__range {
+  --fill: 0%;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  margin: 0.4rem 0;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--primary) 0%,
+    var(--primary) var(--fill),
+    var(--surface-2) var(--fill),
+    var(--surface-2) 100%
+  );
+  cursor: pointer;
+  outline: none;
+}
+
+.detour-slider__range:disabled {
+  cursor: not-allowed;
+}
+
+.detour-slider__range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--grad-heat);
+  box-shadow: var(--glow-primary);
+  border: 2px solid var(--bg);
+}
+
+.detour-slider__range::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: var(--glow-primary);
+  border: 2px solid var(--bg);
+}
+
+.detour-slider__scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
+
+/* --- 寄り道経由地マーカー（地図上）------------------------------------- */
+
+.waypoint-marker {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: var(--on-primary);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 0.78rem;
+  border: 2px solid var(--bg);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 45%);
+  cursor: pointer;
+}

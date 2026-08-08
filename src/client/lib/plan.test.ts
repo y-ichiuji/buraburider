@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { buildPlanRequest, DEFAULT_DETOUR_LEVEL, formatDistance, formatDuration } from './plan'
+import {
+  buildPlanRequest,
+  DEFAULT_DETOUR_LEVEL,
+  DETOUR_LEVEL_MAX,
+  DETOUR_LEVEL_MIN,
+  formatDistance,
+  formatDuration
+} from './plan'
 
 describe('buildPlanRequest', () => {
   it('origin / destination と既定の detourLevel・休憩無効でボディを組み立てる', () => {
@@ -19,6 +26,11 @@ describe('buildPlanRequest', () => {
 
   it('既定の detourLevel は 0（素のルート）', () => {
     expect(DEFAULT_DETOUR_LEVEL).toBe(0)
+  })
+
+  it('寄り道度の範囲はサーバー（0〜5）と一致する', () => {
+    expect(DETOUR_LEVEL_MIN).toBe(0)
+    expect(DETOUR_LEVEL_MAX).toBe(5)
   })
 })
 

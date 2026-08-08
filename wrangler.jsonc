@@ -4,6 +4,10 @@
   "main": "src/index.tsx",
   "compatibility_date": "2026-06-14",
   "compatibility_flags": ["nodejs_compat"],
+  // 寄り道スポットの選定・並べ替えに使う Workers AI（バインディング名 AI）。
+  "ai": {
+    "binding": "AI"
+  },
   // Mapbox Geocoding / Search 応答のキャッシュ用 KV。
   // ローカル開発は miniflare が模擬するため id はプレースホルダで良い。
   // remote デプロイ前に `wrangler kv namespace create CACHE` で発行した実 id に差し替えること。

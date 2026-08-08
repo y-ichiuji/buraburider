@@ -5,11 +5,13 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import type { Coord, SuggestItem } from '../server/types'
+import { DetourSlider } from './components/DetourSlider'
 import { MapView } from './components/MapView'
 import { RoutePanel } from './components/RoutePanel'
 import { SuggestField } from './components/SuggestField'
 import { useGeolocation } from './hooks/useGeolocation'
 import { useRoutePlan } from './hooks/useRoutePlan'
+import { DEFAULT_DETOUR_LEVEL } from './lib/plan'
 import { readMapboxToken } from './lib/mapbox'
 
 function App() {
@@ -24,6 +26,9 @@ function App() {
 
   const [destItem, setDestItem] = useState<SuggestItem | null>(null)
   const [destQuery, setDestQuery] = useState('')
+
+  // 寄り道度（0-5）。ルート生成時に buildPlanRequest 経由でサーバーへ送る。
+  const [detourLevel, setDetourLevel] = useState(DEFAULT_DETOUR_LEVEL)
 
   const { plan, status: planStatus, error: planError, generate, reset } = useRoutePlan()
 
@@ -53,7 +58,7 @@ function App() {
 
   function handleGenerate() {
     if (!destItem) return
-    void generate(origin, destItem.coord)
+    void generate(origin, destItem.coord, detourLevel)
   }
 
   const originPlaceholder =
@@ -71,6 +76,7 @@ function App() {
         destination={destItem?.coord ?? null}
         focus={focus}
         route={plan?.route.geojson ?? null}
+        waypoints={plan?.waypoints ?? []}
       />
 
       <div className="overlay">
@@ -109,6 +115,12 @@ function App() {
 
         <div className="bottom-dock">
           <RoutePanel plan={plan} status={planStatus} error={planError} />
+
+          <DetourSlider
+            value={detourLevel}
+            onChange={setDetourLevel}
+            disabled={planStatus === 'loading'}
+          />
 
           <button
             type="button"

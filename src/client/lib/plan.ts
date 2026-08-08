@@ -6,8 +6,12 @@ import type { Coord, PlanRequest, PlanResponse } from '../../server/types'
 /** ルート生成 API のエンドポイント。 */
 export const PLAN_ENDPOINT = '/api/routes/plan'
 
-/** ステップ3で送る既定の寄り道度（素のルート）。 */
-export const DEFAULT_DETOUR_LEVEL = 0
+/** 寄り道度スライダーの範囲（サーバーの parsePlanRequest と一致させる）。 */
+export const DETOUR_LEVEL_MIN = 0
+export const DETOUR_LEVEL_MAX = 5
+
+/** 既定の寄り道度（素のルート）。 */
+export const DEFAULT_DETOUR_LEVEL = DETOUR_LEVEL_MIN
 
 /** ルート生成 API のレスポンス形（成功時は PlanResponse、失敗時は { error }）。 */
 export type PlanApiResponse = PlanResponse | { error: string }

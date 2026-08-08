@@ -2,9 +2,17 @@
 // 距離(km)・所要時間(min) をメーター表現（等幅・大きめ）で見せる。
 // 将来（ステップ4/5）は立ち寄り一覧・休憩一覧をここに追加する。
 
-import type { PlanResponse } from '../../server/types'
+import type { PlanResponse, WaypointType } from '../../server/types'
 import { formatDistance, formatDuration } from '../lib/plan'
 import type { RoutePlanStatus } from '../hooks/useRoutePlan'
+
+/** 経由地種別の表示ラベル。 */
+const WAYPOINT_TYPE_LABEL: Record<WaypointType, string> = {
+  scenic: '絶景',
+  winding: 'ワインディング',
+  landmark: '名所',
+  poi: '立ち寄り'
+}
 
 export interface RoutePanelProps {
   plan: PlanResponse | null
@@ -36,6 +44,8 @@ export function RoutePanel({ plan, status, error }: RoutePanelProps) {
 
   if (!plan) return null
 
+  const waypoints = plan.waypoints
+
   return (
     <div className="route-panel" role="status" aria-live="polite">
       <dl className="meter-row">
@@ -53,6 +63,18 @@ export function RoutePanel({ plan, status, error }: RoutePanelProps) {
           </dd>
         </div>
       </dl>
+
+      {waypoints.length > 0 && (
+        <ol className="stop-list" aria-label="立ち寄りスポット">
+          {waypoints.map((wp, i) => (
+            <li className="stop-item" key={`${wp.name}-${wp.coord[0]}-${wp.coord[1]}`}>
+              <span className="stop-item__index">{i + 1}</span>
+              <span className="stop-item__name">{wp.name}</span>
+              <span className="stop-item__type">{WAYPOINT_TYPE_LABEL[wp.type]}</span>
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   )
 }
